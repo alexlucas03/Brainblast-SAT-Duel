@@ -1,32 +1,20 @@
-//
-//  Brainblast_SAT_DuelApp.swift
-//  Brainblast SAT Duel
-//
-//  Created by Alex Lucas-Smith on 3/16/25.
-//
-
 import SwiftUI
-import SwiftData
 
 @main
-struct Brainblast_SAT_DuelApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
+struct BrainblastSATDuelApp: App {
+    // Create shared PostgresDBManager instance
+    @StateObject private var dbManager = PostgresDBManager()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            // Show ContentView if user is logged in, otherwise show LoginView
+            if dbManager.isLoggedIn {
+                ContentView()
+                    .environmentObject(dbManager)
+            } else {
+                LoginView()
+                    .environmentObject(dbManager)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
