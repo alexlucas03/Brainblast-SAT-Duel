@@ -235,9 +235,3 @@ struct DuelDetailView: View {
         }
     }
 }
-
-extension User {
-    var score: Int {
-        Int.random(in: 0...100) // Replace with fetching the actual score.
-    }
-}

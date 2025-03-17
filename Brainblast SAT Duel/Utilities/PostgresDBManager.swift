@@ -300,11 +300,11 @@ class PostgresDBManager: ObservableObject {
                 defer { connection.close() }
 
                 let query = """
-                    SELECT dp.id, dp.user_id, u.username, dp.joined_at, dp.score
+                    SELECT u.username, dp.score
                     FROM duel_participants dp
                     JOIN users u ON CAST(dp.user_id AS INTEGER) = u.id
                     WHERE dp.duel_id = $1
-                    ORDER BY dp.score DESC, dp.joined_at ASC;
+                    ORDER BY dp.score DESC NULLS LAST;
                 """
 
                 let statement = try connection.prepareStatement(text: query)
@@ -318,9 +318,10 @@ class PostgresDBManager: ObservableObject {
                 while let rowResult = try cursor.next() {
                     let row = try rowResult.get()
 
-                    let username = try row.columns[2].string()
+                    let username = try row.columns[0].string()
+                    let score = try row.columns[1].optionalInt() ?? 0
 
-                    participants.append(User(username: username))
+                    participants.append(User(username: username, score: score))
                 }
 
                 DispatchQueue.main.async {
@@ -429,6 +430,9 @@ class PostgresDBManager: ObservableObject {
 
                 _ = try statement.execute(parameterValues: [userId, duelId, timeTaken, isCorrect])
 
+                // Check for round completion and score update
+                try self.checkAndUpdateScores(duelId: duelId, connection: connection)
+
                 DispatchQueue.main.async {
                     completion(true, nil)
                 }
@@ -439,6 +443,126 @@ class PostgresDBManager: ObservableObject {
                 }
             }
         }
+    }
+    
+    private func checkAndUpdateScores(duelId: String, connection: Connection) throws {
+            let countQuery = "SELECT COUNT(*) FROM answers WHERE duel_id = $1;"
+            let countStatement = try connection.prepareStatement(text: countQuery)
+            defer { countStatement.close() }
+
+            let countCursor = try countStatement.execute(parameterValues: [duelId])
+            defer { countCursor.close() }
+
+            if let countRowResult = try countCursor.next(), let countRow = try? countRowResult.get(), let count = try? countRow.columns[0].int() {
+                if count % 2 == 0 {
+                    // Get the last two answers
+                    let answersQuery = """
+                        SELECT user_id, time_taken, is_correct
+                        FROM answers
+                        WHERE duel_id = $1
+                        ORDER BY id DESC
+                        LIMIT 2;
+                    """
+                    let answersStatement = try connection.prepareStatement(text: answersQuery)
+                    defer { answersStatement.close() }
+
+                    let answersCursor = try answersStatement.execute(parameterValues: [duelId])
+                    defer { answersCursor.close() }
+
+                    var answers = [(userId: String, timeTaken: Int, isCorrect: Bool)]()
+                    while let answerRowResult = try answersCursor.next() {
+                        let answerRow = try answerRowResult.get()
+                        let userId = try answerRow.columns[0].string()
+                        let timeTaken = try answerRow.columns[1].int()
+                        let isCorrect = try answerRow.columns[2].bool()
+                        answers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect))
+                    }
+
+                    if answers.count == 2 {
+                        let answer1 = answers[0]
+                        let answer2 = answers[1]
+
+                        if answer1.isCorrect && answer2.isCorrect {
+                            // Both correct, faster wins
+                            let winnerId = answer1.timeTaken < answer2.timeTaken ? answer1.userId : answer2.userId
+                            try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
+                        } else if !answer1.isCorrect && !answer2.isCorrect {
+                            // Both incorrect, tie
+                        } else {
+                            // One correct, one incorrect
+                            let winnerId = answer1.isCorrect ? answer1.userId : answer2.userId
+                            try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
+                        }
+                    }
+                }
+            }
+        }
+
+    private func updateDuelParticipantScore(duelId: String, userId: String, connection: Connection) throws {
+        let updateQuery = """
+            UPDATE duel_participants
+            SET score = score + 1
+            WHERE duel_id = $1 AND user_id = $2;
+        """
+        let updateStatement = try connection.prepareStatement(text: updateQuery)
+        defer { updateStatement.close() }
+
+        _ = try updateStatement.execute(parameterValues: [duelId, userId])
+        
+        try checkForWinner(duelId: duelId, connection: connection)
+    }
+    
+    private func checkForWinner(duelId: String, connection: Connection) throws {
+        let query = """
+            SELECT user_id FROM duel_participants
+            WHERE duel_id = $1 AND score = 3;
+        """
+        let statement = try connection.prepareStatement(text: query)
+        defer { statement.close() }
+
+        let cursor = try statement.execute(parameterValues: [duelId])
+        defer { cursor.close() }
+
+        if let rowResult = try cursor.next() {
+            let row = try rowResult.get()
+            let winnerId = try row.columns[0].string()
+
+            // Winner found, set both is_their_turn to false
+            let updateQuery = """
+                UPDATE duel_participants
+                SET is_their_turn = false
+                WHERE duel_id = $1;
+            """
+            let updateStatement = try connection.prepareStatement(text: updateQuery)
+            defer { updateStatement.close() }
+
+            _ = try updateStatement.execute(parameterValues: [duelId])
+
+            // Optionally, mark the duel as completed
+            try completeDuel(duelId: duelId, connection: connection)
+
+            print("Winner found: \(winnerId) in duel \(duelId)")
+        }
+    }
+
+    private func completeDuel(duelId: String, connection: Connection) throws {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let timestampString = dateFormatter.string(from: Date())
+
+        // Update duels table to mark duel as completed
+        let duelUpdateQuery = "UPDATE duels SET active = false, completed_at = $1 WHERE id = $2;"
+        let duelUpdateStatement = try connection.prepareStatement(text: duelUpdateQuery)
+        defer { duelUpdateStatement.close() }
+
+        _ = try duelUpdateStatement.execute(parameterValues: [timestampString, duelId])
+
+        // Update duel_participants table to set is_their_turn to false for all participants
+        let participantsUpdateQuery = "UPDATE duel_participants SET is_their_turn = false WHERE duel_id = $1;"
+        let participantsUpdateStatement = try connection.prepareStatement(text: participantsUpdateQuery)
+        defer { participantsUpdateStatement.close() }
+
+        _ = try participantsUpdateStatement.execute(parameterValues: [duelId])
     }
 
     func switchTurn(duelId: String, currentUserId: String, completion: @escaping (Bool, Error?) -> Void) {
