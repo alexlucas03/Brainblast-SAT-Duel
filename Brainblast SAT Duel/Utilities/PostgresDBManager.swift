@@ -145,12 +145,52 @@ class PostgresDBManager: ObservableObject {
                     let row = try rowResult.get()
                     let duelId = try row.columns[0].string()
                     
-                    // 2. Add user to the duel_participants table
-                    let joinQuery = "INSERT INTO duel_participants (user_id, duel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;"
+                    // 2. Add user to the duel_participants table with is_their_turn = false initially
+                    let joinQuery = "INSERT INTO duel_participants (user_id, duel_id, is_their_turn) VALUES ($1, $2, false) ON CONFLICT DO NOTHING;"
                     let joinStatement = try connection.prepareStatement(text: joinQuery)
                     defer { joinStatement.close() }
                     
                     _ = try joinStatement.execute(parameterValues: [userId, duelId])
+                    
+                    // 3. Check if this is the second player joining (count participants)
+                    let countQuery = "SELECT COUNT(*) FROM duel_participants WHERE duel_id = $1;"
+                    let countStatement = try connection.prepareStatement(text: countQuery)
+                    defer { countStatement.close() }
+                    
+                    let countCursor = try countStatement.execute(parameterValues: [duelId])
+                    defer { countCursor.close() }
+                    
+                    if let countRowResult = try countCursor.next() {
+                        let countRow = try countRowResult.get()
+                        let participantCount = try countRow.columns[0].int()
+                        
+                        // If this is the second player, set the creator's turn to true
+                        if participantCount == 2 {
+                            // Get the creator ID
+                            let creatorQuery = "SELECT creator_id FROM duels WHERE id = $1;"
+                            let creatorStatement = try connection.prepareStatement(text: creatorQuery)
+                            defer { creatorStatement.close() }
+                            
+                            let creatorCursor = try creatorStatement.execute(parameterValues: [duelId])
+                            defer { creatorCursor.close() }
+                            
+                            if let creatorRowResult = try creatorCursor.next() {
+                                let creatorRow = try creatorRowResult.get()
+                                let creatorId = try creatorRow.columns[0].string()
+                                
+                                // Set creator's turn to true
+                                let updateTurnQuery = """
+                                    UPDATE duel_participants
+                                    SET is_their_turn = (user_id = $1)
+                                    WHERE duel_id = $2;
+                                """
+                                let updateTurnStatement = try connection.prepareStatement(text: updateTurnQuery)
+                                defer { updateTurnStatement.close() }
+                                
+                                _ = try updateTurnStatement.execute(parameterValues: [creatorId, duelId])
+                            }
+                        }
+                    }
                     
                     DispatchQueue.main.async {
                         completion(true, nil)
@@ -171,6 +211,143 @@ class PostgresDBManager: ObservableObject {
         }
     }
 
+    func getRandomQuestion(completion: @escaping (Question?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Query to select a random question from the questions table
+                let query = "SELECT id, question_text, option_a, option_b, option_c, option_d, correct_option FROM questions ORDER BY RANDOM() LIMIT 1;"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute()
+                defer { cursor.close() }
+                
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    
+                    let questionId = try row.columns[0].string()
+                    let questionText = try row.columns[1].string()
+                    let optionA = try row.columns[2].string()
+                    let optionB = try row.columns[3].string()
+                    let optionC = try row.columns[4].string()
+                    let optionD = try row.columns[5].string()
+                    let correctOption = try row.columns[6].string()
+                    
+                    let question = Question(
+                        questionText: questionText,
+                        optionA: optionA,
+                        optionB: optionB,
+                        optionC: optionC,
+                        optionD: optionD,
+                        correctOption: correctOption
+                    )
+                    
+                    DispatchQueue.main.async {
+                        completion(question, nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(nil, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "No questions found in database"]))
+                    }
+                }
+            } catch {
+                print("Error getting random question: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
+        }
+    }
+
+    // Method to assign a question to a duel
+    func assignQuestionToDuel(duelId: String, questionId: String, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Update the duel to associate it with the question
+                let query = "UPDATE duels SET current_question_id = $1 WHERE id = $2;"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                _ = try statement.execute(parameterValues: [questionId, duelId])
+                
+                DispatchQueue.main.async {
+                    completion(true, nil)
+                }
+            } catch {
+                print("Error assigning question to duel: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
+        }
+    }
+
+    // Method to get the current question for a duel
+    // Method to get the current question for a duel with proper type casting
+    func getCurrentQuestion(duelId: String, completion: @escaping (Question?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Query to get the current question for a duel with explicit type casting
+                let query = """
+                    SELECT q.id, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_option
+                    FROM questions q
+                    JOIN duels d ON q.id = CAST(d.current_question_id AS INTEGER)
+                    WHERE d.id = $1;
+                """
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute(parameterValues: [duelId])
+                defer { cursor.close() }
+                
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    
+                    let questionId = try row.columns[0].string()
+                    let questionText = try row.columns[1].string()
+                    let optionA = try row.columns[2].string()
+                    let optionB = try row.columns[3].string()
+                    let optionC = try row.columns[4].string()
+                    let optionD = try row.columns[5].string()
+                    let correctOption = try row.columns[6].string()
+                    
+                    let question = Question(
+                        questionText: questionText,
+                        optionA: optionA,
+                        optionB: optionB,
+                        optionC: optionC,
+                        optionD: optionD,
+                        correctOption: correctOption
+                    )
+                    
+                    DispatchQueue.main.async {
+                        completion(question, nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(nil, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "No question found for this duel"]))
+                    }
+                }
+            } catch {
+                print("Error getting current question: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
+        }
+    }
+
+    // Now modify the createDuel method to incorporate a random question
+    // Now modify the createDuel method to incorporate a random question with proper type casting
     func createDuel(creatorId: String, completion: @escaping (Bool, String?, Error?) -> Void) {
         DispatchQueue.global(qos: .background).async {
             do {
@@ -189,36 +366,61 @@ class PostgresDBManager: ObservableObject {
                     code.append(randomChar)
                 }
                 
-                // 2. Insert the new duel into the duels table
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                let timestampString = dateFormatter.string(from: Date())
+                // 2. Get a random question ID
+                let questionQuery = "SELECT id FROM questions ORDER BY RANDOM() LIMIT 1;"
+                let questionStatement = try connection.prepareStatement(text: questionQuery)
+                defer { questionStatement.close() }
                 
-                let createQuery = "INSERT INTO duels (room_code, creator_id, created_at) VALUES ($1, $2, $3) RETURNING id;"
-                let createStatement = try connection.prepareStatement(text: createQuery)
-                defer { createStatement.close() }
+                let questionCursor = try questionStatement.execute()
+                defer { questionCursor.close() }
                 
-                let createCursor = try createStatement.execute(parameterValues: [code, creatorId, timestampString])
-                defer { createCursor.close() }
-                
-                if let rowResult = try createCursor.next() {
-                    // Get the new duel ID
-                    let row = try rowResult.get()
-                    let duelId = try row.columns[0].string()
+                if let questionRowResult = try questionCursor.next() {
+                    let questionRow = try questionRowResult.get()
+                    let questionId = try questionRow.columns[0].string()
                     
-                    // 3. Add the creator to the duel_participants table
-                    let joinQuery = "INSERT INTO duel_participants (user_id, duel_id) VALUES ($1, $2);"
-                    let joinStatement = try connection.prepareStatement(text: joinQuery)
-                    defer { joinStatement.close() }
+                    // Convert questionId to Int for proper type matching with the database column
+                    guard let questionIdInt = Int(questionId) else {
+                        DispatchQueue.main.async {
+                            completion(false, nil, NSError(domain: "DBError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid question ID format"]))
+                        }
+                        return
+                    }
                     
-                    _ = try joinStatement.execute(parameterValues: [creatorId, duelId])
+                    // 3. Insert the new duel into the duels table with the question ID (as Int)
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                    let timestampString = dateFormatter.string(from: Date())
                     
-                    DispatchQueue.main.async {
-                        completion(true, code, nil)
+                    let createQuery = "INSERT INTO duels (room_code, creator_id, created_at, current_question_id) VALUES ($1, $2, $3, $4) RETURNING id;"
+                    let createStatement = try connection.prepareStatement(text: createQuery)
+                    defer { createStatement.close() }
+                    
+                    let createCursor = try createStatement.execute(parameterValues: [code, creatorId, timestampString, questionIdInt])
+                    defer { createCursor.close() }
+                    
+                    if let rowResult = try createCursor.next() {
+                        // Get the new duel ID
+                        let row = try rowResult.get()
+                        let duelId = try row.columns[0].string()
+                        
+                        // 4. Add the creator to the duel_participants table
+                        let joinQuery = "INSERT INTO duel_participants (user_id, duel_id, is_their_turn) VALUES ($1, $2, false);"
+                        let joinStatement = try connection.prepareStatement(text: joinQuery)
+                        defer { joinStatement.close() }
+                        
+                        _ = try joinStatement.execute(parameterValues: [creatorId, duelId])
+                        
+                        DispatchQueue.main.async {
+                            completion(true, code, nil)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            completion(false, nil, NSError(domain: "DBError", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to create duel"]))
+                        }
                     }
                 } else {
                     DispatchQueue.main.async {
-                        completion(false, nil, NSError(domain: "DBError", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to create duel"]))
+                        completion(false, nil, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "No questions found in database"]))
                     }
                 }
             } catch {
@@ -445,58 +647,159 @@ class PostgresDBManager: ObservableObject {
         }
     }
     
-    private func checkAndUpdateScores(duelId: String, connection: Connection) throws {
-            let countQuery = "SELECT COUNT(*) FROM answers WHERE duel_id = $1;"
-            let countStatement = try connection.prepareStatement(text: countQuery)
-            defer { countStatement.close() }
-
-            let countCursor = try countStatement.execute(parameterValues: [duelId])
-            defer { countCursor.close() }
-
-            if let countRowResult = try countCursor.next(), let countRow = try? countRowResult.get(), let count = try? countRow.columns[0].int() {
-                if count % 2 == 0 {
-                    // Get the last two answers
-                    let answersQuery = """
-                        SELECT user_id, time_taken, is_correct
-                        FROM answers
-                        WHERE duel_id = $1
-                        ORDER BY id DESC
-                        LIMIT 2;
-                    """
-                    let answersStatement = try connection.prepareStatement(text: answersQuery)
-                    defer { answersStatement.close() }
-
-                    let answersCursor = try answersStatement.execute(parameterValues: [duelId])
-                    defer { answersCursor.close() }
-
-                    var answers = [(userId: String, timeTaken: Int, isCorrect: Bool)]()
-                    while let answerRowResult = try answersCursor.next() {
-                        let answerRow = try answerRowResult.get()
-                        let userId = try answerRow.columns[0].string()
-                        let timeTaken = try answerRow.columns[1].int()
-                        let isCorrect = try answerRow.columns[2].bool()
-                        answers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect))
+    func updateDuelQuestion(duelId: String, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Get a new random question that's different from the current one with proper type casting
+                let query = """
+                    SELECT q.id 
+                    FROM questions q
+                    WHERE q.id != CAST((SELECT current_question_id FROM duels WHERE id = $1) AS INTEGER)
+                    ORDER BY RANDOM() 
+                    LIMIT 1;
+                """
+                
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute(parameterValues: [duelId])
+                defer { cursor.close() }
+                
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    let questionId = try row.columns[0].string()
+                    
+                    // Convert to Int for proper database type matching
+                    guard let questionIdInt = Int(questionId) else {
+                        DispatchQueue.main.async {
+                            completion(false, NSError(domain: "DBError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid question ID format"]))
+                        }
+                        return
                     }
+                    
+                    // Update the duel with the new question
+                    let updateQuery = "UPDATE duels SET current_question_id = $1 WHERE id = $2;"
+                    let updateStatement = try connection.prepareStatement(text: updateQuery)
+                    defer { updateStatement.close() }
+                    
+                    _ = try updateStatement.execute(parameterValues: [questionIdInt, duelId])
+                    
+                    DispatchQueue.main.async {
+                        completion(true, nil)
+                    }
+                } else {
+                    // If no different question found, just pick any random one
+                    let fallbackQuery = "SELECT id FROM questions ORDER BY RANDOM() LIMIT 1;"
+                    let fallbackStatement = try connection.prepareStatement(text: fallbackQuery)
+                    defer { fallbackStatement.close() }
+                    
+                    let fallbackCursor = try fallbackStatement.execute()
+                    defer { fallbackCursor.close() }
+                    
+                    if let fallbackRowResult = try fallbackCursor.next() {
+                        let fallbackRow = try fallbackRowResult.get()
+                        let questionId = try fallbackRow.columns[0].string()
+                        
+                        // Convert to Int for proper database type matching
+                        guard let questionIdInt = Int(questionId) else {
+                            DispatchQueue.main.async {
+                                completion(false, NSError(domain: "DBError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid question ID format"]))
+                            }
+                            return
+                        }
+                        
+                        let updateQuery = "UPDATE duels SET current_question_id = $1 WHERE id = $2;"
+                        let updateStatement = try connection.prepareStatement(text: updateQuery)
+                        defer { updateStatement.close() }
+                        
+                        _ = try updateStatement.execute(parameterValues: [questionIdInt, duelId])
+                        
+                        DispatchQueue.main.async {
+                            completion(true, nil)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            completion(false, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "No questions found in database"]))
+                        }
+                    }
+                }
+            } catch {
+                print("Error updating duel question: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
+        }
+    }
 
-                    if answers.count == 2 {
-                        let answer1 = answers[0]
-                        let answer2 = answers[1]
+    // Now let's update the checkAndUpdateScores method to include question updating
+    private func checkAndUpdateScores(duelId: String, connection: Connection) throws {
+        let countQuery = "SELECT COUNT(*) FROM answers WHERE duel_id = $1;"
+        let countStatement = try connection.prepareStatement(text: countQuery)
+        defer { countStatement.close() }
 
-                        if answer1.isCorrect && answer2.isCorrect {
-                            // Both correct, faster wins
-                            let winnerId = answer1.timeTaken < answer2.timeTaken ? answer1.userId : answer2.userId
-                            try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
-                        } else if !answer1.isCorrect && !answer2.isCorrect {
-                            // Both incorrect, tie
-                        } else {
-                            // One correct, one incorrect
-                            let winnerId = answer1.isCorrect ? answer1.userId : answer2.userId
-                            try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
+        let countCursor = try countStatement.execute(parameterValues: [duelId])
+        defer { countCursor.close() }
+
+        if let countRowResult = try countCursor.next(), let countRow = try? countRowResult.get(), let count = try? countRow.columns[0].int() {
+            if count % 2 == 0 {
+                // Get the last two answers
+                let answersQuery = """
+                    SELECT user_id, time_taken, is_correct
+                    FROM answers
+                    WHERE duel_id = $1
+                    ORDER BY id DESC
+                    LIMIT 2;
+                """
+                let answersStatement = try connection.prepareStatement(text: answersQuery)
+                defer { answersStatement.close() }
+
+                let answersCursor = try answersStatement.execute(parameterValues: [duelId])
+                defer { answersCursor.close() }
+
+                var answers = [(userId: String, timeTaken: Int, isCorrect: Bool)]()
+                while let answerRowResult = try answersCursor.next() {
+                    let answerRow = try answerRowResult.get()
+                    let userId = try answerRow.columns[0].string()
+                    let timeTaken = try answerRow.columns[1].int()
+                    let isCorrect = try answerRow.columns[2].bool()
+                    answers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect))
+                }
+
+                if answers.count == 2 {
+                    let answer1 = answers[0]
+                    let answer2 = answers[1]
+
+                    if answer1.isCorrect && answer2.isCorrect {
+                        // Both correct, faster wins
+                        let winnerId = answer1.timeTaken < answer2.timeTaken ? answer1.userId : answer2.userId
+                        try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
+                    } else if !answer1.isCorrect && !answer2.isCorrect {
+                        // Both incorrect, tie
+                    } else {
+                        // One correct, one incorrect
+                        let winnerId = answer1.isCorrect ? answer1.userId : answer2.userId
+                        try updateDuelParticipantScore(duelId: duelId, userId: winnerId, connection: connection)
+                    }
+                    
+                    // Update the question for the next round
+                    // We need to do this outside the current transaction
+                    DispatchQueue.global(qos: .background).async {
+                        self.updateDuelQuestion(duelId: duelId) { success, error in
+                            if success {
+                                print("Updated question for next round in duel \(duelId)")
+                            } else {
+                                print("Error updating question: \(error?.localizedDescription ?? "Unknown error")")
+                            }
                         }
                     }
                 }
             }
         }
+    }
 
     private func updateDuelParticipantScore(duelId: String, userId: String, connection: Connection) throws {
         let updateQuery = """
