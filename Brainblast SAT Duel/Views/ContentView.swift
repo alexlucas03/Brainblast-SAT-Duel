@@ -1,4 +1,6 @@
 import SwiftUI
+import Foundation
+import PostgresClientKit
 
 struct ContentView: View {
     @EnvironmentObject private var dbManager: PostgresDBManager
@@ -11,21 +13,26 @@ struct ContentView: View {
     @State private var duelCode: String = ""
     @State private var showSuccessAlert: Bool = false
     @State private var successMessage: String = ""
+    @State private var navigationDestination: NavigationDestination?
+    
+    enum NavigationDestination: Hashable {
+        case duelDetail(Duel)
+        case game(Duel, String) // Added userId
+    }
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack {
                 if let username = dbManager.currentUsername {
                     Text("Welcome, \(username)!")
                         .font(.title)
                         .padding()
-                    
-                    // Duel list section
+
                     VStack(alignment: .leading) {
                         Text("Your Duels")
                             .font(.headline)
                             .padding(.horizontal)
-                        
+
                         if isDuelsLoading {
                             ProgressView("Loading duels...")
                                 .padding()
@@ -36,7 +43,9 @@ struct ContentView: View {
                         } else {
                             List {
                                 ForEach(duels) { duel in
-                                    NavigationLink(destination: DuelDetailView(duel: duel)) {
+                                    Button(action: {
+                                        determineDuelNavigation(duel: duel)
+                                    }) {
                                         HStack {
                                             VStack(alignment: .leading) {
                                                 Text("Room: \(duel.roomCode)")
@@ -45,9 +54,9 @@ struct ContentView: View {
                                                     .font(.caption)
                                                     .foregroundColor(.secondary)
                                             }
-                                            
+
                                             Spacer()
-                                            
+
                                             if duel.active {
                                                 Text("Active")
                                                     .font(.caption)
@@ -66,8 +75,7 @@ struct ContentView: View {
                         }
                     }
                     .frame(maxHeight: .infinity)
-                    
-                    // Duel buttons
+
                     HStack(spacing: 20) {
                         Button("Join Duel") {
                             showJoinDuelSheet = true
@@ -76,7 +84,7 @@ struct ContentView: View {
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(10)
-                        
+
                         Button("Start Duel") {
                             startNewDuel()
                         }
@@ -86,9 +94,9 @@ struct ContentView: View {
                         .cornerRadius(10)
                     }
                     .padding()
-                    
+
                     Spacer()
-                    
+
                     Button("Logout") {
                         dbManager.logout()
                     }
@@ -98,6 +106,14 @@ struct ContentView: View {
             }
             .navigationTitle("Brainblast SAT Duel")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $navigationDestination) { destination in
+                switch destination {
+                case .duelDetail(let duel):
+                    DuelDetailView(duel: duel)
+                case .game(let duel, let userId):
+                    GameView(duel: duel, userId: userId)
+                }
+            }
             .onAppear {
                 loadDuels()
             }
@@ -109,25 +125,25 @@ struct ContentView: View {
             }
             .alert("Success", isPresented: $showSuccessAlert) {
                 Button("OK", role: .cancel) {
-                    loadDuels() // Reload duels after successful join or creation
+                    loadDuels()
                 }
             } message: {
                 Text(successMessage)
             }
         }
     }
-    
+
     private var joinDuelView: some View {
         VStack(spacing: 20) {
             Text("Join Duel")
                 .font(.title)
                 .bold()
-            
+
             TextField("Enter Duel Code", text: $duelCode)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
                 .autocapitalization(.allCharacters)
-            
+
             Button("Join") {
                 joinDuel(code: duelCode)
                 showJoinDuelSheet = false
@@ -137,7 +153,7 @@ struct ContentView: View {
             .foregroundColor(.white)
             .cornerRadius(10)
             .disabled(duelCode.isEmpty)
-            
+
             Button("Cancel") {
                 showJoinDuelSheet = false
                 duelCode = ""
@@ -147,15 +163,15 @@ struct ContentView: View {
         }
         .padding()
     }
-    
+
     private func loadDuels() {
         isDuelsLoading = true
-        
+
         if let userId = dbManager.currentUserId {
             dbManager.getUserDuels(userId: userId) { fetchedDuels, error in
                 DispatchQueue.main.async {
                     isDuelsLoading = false
-                    
+
                     if let error = error {
                         alertTitle = "Error"
                         alertMessage = "Failed to load duels: \(error.localizedDescription)"
@@ -169,10 +185,10 @@ struct ContentView: View {
             isDuelsLoading = false
         }
     }
-    
+
     private func joinDuel(code: String) {
         guard let userId = dbManager.currentUserId else { return }
-        
+
         dbManager.joinDuel(userId: userId, roomCode: code) { success, error in
             DispatchQueue.main.async {
                 if success {
@@ -188,10 +204,10 @@ struct ContentView: View {
             }
         }
     }
-    
+
     private func startNewDuel() {
         guard let userId = dbManager.currentUserId else { return }
-        
+
         dbManager.createDuel(creatorId: userId) { success, roomCode, error in
             DispatchQueue.main.async {
                 if success, let roomCode = roomCode {
@@ -202,6 +218,26 @@ struct ContentView: View {
                     alertTitle = "Error"
                     alertMessage = "Failed to create duel: \(error?.localizedDescription ?? "Unknown error")"
                     showAlert = true
+                }
+            }
+        }
+    }
+
+    private func determineDuelNavigation(duel: Duel) {
+        guard let userId = dbManager.currentUserId else {
+            navigationDestination = .duelDetail(duel)
+            return
+        }
+        
+        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+            DispatchQueue.main.async {
+                if let isTurn = isTurn {
+                    navigationDestination = isTurn
+                        ? .game(duel, userId)
+                        : .duelDetail(duel)
+                } else {
+                    // Fallback to DuelDetailView if unable to determine turn
+                    navigationDestination = .duelDetail(duel)
                 }
             }
         }

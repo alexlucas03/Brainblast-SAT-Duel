@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DuelDetailView: View {
     @EnvironmentObject private var dbManager: PostgresDBManager
+    @Environment(\.presentationMode) var presentationMode
     let duel: Duel
     
     @State private var participants: [User] = []
@@ -77,13 +78,6 @@ struct DuelDetailView: View {
                                 
                                 Spacer()
                                 
-                                // Assuming you've added a score property to User model.
-                                // If not, you'll have to fetch score from duel_participants table.
-                                // Example: Text("Score: \(participant.score)")
-                                // In this case, I am adding a score property to the User class
-                                // and will fetch it when getting the participants.
-                                // But if you don't want to add score to User class, you need to
-                                // make another call to fetch duel_participants and get the score.
                                 Text("Score: \(participant.score)")
                                     .font(.body)
                                     .foregroundColor(.blue)
@@ -169,6 +163,21 @@ struct DuelDetailView: View {
             .padding()
         }
         .navigationTitle("Duel Details")
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    // Explicitly navigate back to root view by going back multiple times
+                    presentationMode.wrappedValue.dismiss()
+                    presentationMode.wrappedValue.dismiss()
+                }) {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                }
+            }
+        }
         .onAppear {
             loadParticipants()
         }

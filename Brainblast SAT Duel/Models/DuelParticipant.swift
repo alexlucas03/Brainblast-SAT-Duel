@@ -5,11 +5,13 @@ import SwiftData
 class DuelParticipant {
     var id: String = UUID().uuidString
     var userId: String
-    
+    var isTheirTurn: Bool
+
     @Relationship(inverse: \Duel.participants)
     var duel: Duel?
-    
-    init(userId: String) {
+
+    init(userId: String, isTheirTurn: Bool) {
         self.userId = userId
+        self.isTheirTurn = isTheirTurn
     }
 }

@@ -417,6 +417,112 @@ class PostgresDBManager: ObservableObject {
         }
     }
     
+    func recordAnswer(userId: String, duelId: String, timeTaken: Int, isCorrect: Bool, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+
+                let query = "INSERT INTO answers (user_id, duel_id, time_taken, is_correct) VALUES ($1, $2, $3, $4);"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+
+                _ = try statement.execute(parameterValues: [userId, duelId, timeTaken, isCorrect])
+
+                DispatchQueue.main.async {
+                    completion(true, nil)
+                }
+            } catch {
+                print("Error recording answer: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
+        }
+    }
+
+    func switchTurn(duelId: String, currentUserId: String, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+
+                // Find the opponent's user ID
+                let opponentQuery = """
+                    SELECT user_id FROM duel_participants
+                    WHERE duel_id = $1 AND user_id != $2;
+                """
+                let opponentStatement = try connection.prepareStatement(text: opponentQuery)
+                defer { opponentStatement.close() }
+
+                let opponentCursor = try opponentStatement.execute(parameterValues: [duelId, currentUserId])
+                defer { opponentCursor.close() }
+
+                if let rowResult = try opponentCursor.next() {
+                    let row = try rowResult.get()
+                    let opponentUserId = try row.columns[0].string()
+
+                    // Update is_their_turn flags
+                    let updateQuery = """
+                        UPDATE duel_participants
+                        SET is_their_turn = (user_id = $1)
+                        WHERE duel_id = $2;
+                    """
+                    let updateStatement = try connection.prepareStatement(text: updateQuery)
+                    defer { updateStatement.close() }
+
+                    _ = try updateStatement.execute(parameterValues: [opponentUserId, duelId])
+
+                    DispatchQueue.main.async {
+                        completion(true, nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(false, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "Opponent not found"]))
+                    }
+                }
+            } catch {
+                print("Error switching turn: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
+        }
+    }
+    
+    func isUsersTurn(userId: String, duelId: String, completion: @escaping (Bool?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+
+                let query = "SELECT is_their_turn FROM duel_participants WHERE user_id = $1 AND duel_id = $2;"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+
+                let cursor = try statement.execute(parameterValues: [userId, duelId])
+                defer { cursor.close() }
+
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    let isTurn = try row.columns[0].bool()
+                    DispatchQueue.main.async {
+                        completion(isTurn, nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(nil, nil) // User or duel not found
+                    }
+                }
+            } catch {
+                print("Error checking turn: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
+        }
+    }
+    
     // Initialize with saved login state (if any)
     init() {
         // Restore login state from UserDefaults
