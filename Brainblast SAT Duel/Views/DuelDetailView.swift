@@ -269,22 +269,21 @@ struct DuelDetailView: View {
                             .padding()
                     } else {
                         ForEach(rounds, id: \.questionNumber) { round in
-                            // Entire round card with winner's half border
+                            // Question header moved outside the grey area
+                            Text("Question \(round.questionNumber)")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.horizontal)
+                                .padding(.top, 4)
+                            
+                            // Entire round card with winner's gradient fill
                             ZStack {
-                                // Background
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.gray.opacity(0.1))
+                                // Background with winner's rainbow fill
+                                winnerBackgroundForRound(round: round)
                                 
-                                // Content
+                                // Content overlay
                                 VStack(spacing: 8) {
-                                    // Question header
-                                    Text("Question \(round.questionNumber)")
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .padding(.top, 12)
-                                        .padding(.bottom, 4)
-                                    
                                     // Result indicators
                                     HStack {
                                         // User result
@@ -297,7 +296,7 @@ struct DuelDetailView: View {
                                                 if let time = round.userTime {
                                                     Text("\(time)s")
                                                         .font(.caption)
-                                                        .foregroundColor(.gray)
+                                                        .foregroundColor(.black)
                                                 }
                                             } else {
                                                 Image(systemName: "questionmark.circle.fill")
@@ -305,7 +304,7 @@ struct DuelDetailView: View {
                                                     .font(.title2)
                                                 Text("Waiting")
                                                     .font(.caption)
-                                                    .foregroundColor(.gray)
+                                                    .foregroundColor(.black)
                                             }
                                         }
                                         .frame(maxWidth: .infinity)
@@ -325,7 +324,7 @@ struct DuelDetailView: View {
                                                 if let time = round.opponentTime {
                                                     Text("\(time)s")
                                                         .font(.caption)
-                                                        .foregroundColor(.gray)
+                                                        .foregroundColor(.black)
                                                 }
                                             } else {
                                                 Image(systemName: "questionmark.circle.fill")
@@ -333,7 +332,7 @@ struct DuelDetailView: View {
                                                     .font(.title2)
                                                 Text("Waiting")
                                                     .font(.caption)
-                                                    .foregroundColor(.gray)
+                                                    .foregroundColor(.black)
                                             }
                                         }
                                         .frame(maxWidth: .infinity)
@@ -341,13 +340,12 @@ struct DuelDetailView: View {
                                     }
                                     .padding(.horizontal)
                                 }
-                                .zIndex(1) // Content stays above background but below the border
-                                
-                                // Fading border for winner
-                                fadingBorderForWinner(round: round)
-                                    .zIndex(2) // Makes sure border is above everything
+                                .cornerRadius(12)
+                                .padding(3) // Small padding to allow the background to show around the edges
                             }
+                            .cornerRadius(12)
                             .padding(.horizontal)
+                            .padding(.bottom, 8)
                         }
                     }
                 }
@@ -397,99 +395,61 @@ struct DuelDetailView: View {
         checkTurn()
     }
     
-    // Fading border for winner
     @ViewBuilder
-    private func fadingBorderForWinner(round: Round) -> some View {
+    private func winnerBackgroundForRound(round: Round) -> some View {
         let winner = determineWinner(round: round)
         
         GeometryReader { geometry in
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.gray.opacity(0.1))
+            
             if winner == .user {
-                // User side winner - left side gradient border
-                ZStack {
-                    // Complete round rectangle for masking
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.clear, lineWidth: 10)
-                    
-                    // Main rainbow border
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(
+                // User side winner - left side rainbow fill
+                HStack(spacing: 0) {
+                    // Left half with rainbow gradient
+                    RoundedLeftRectangle(radius: 12)
+                        .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color(red: 0.98, green: 0.7, blue: 0.6),  // Soft orange/peach
-                                    Color(red: 0.95, green: 0.95, blue: 0.6), // Soft yellow
-                                    Color(red: 0.7, green: 0.98, blue: 0.7),  // Soft green
-                                    Color(red: 0.6, green: 0.8, blue: 0.98)   // Soft blue
+                                    Color(red: 0.98, green: 0.7, blue: 0.6),
+                                    Color(red: 0.95, green: 0.95, blue: 0.6),
+                                    Color(red: 0.7, green: 0.98, blue: 0.7),
+                                    Color(red: 0.6, green: 0.8, blue: 0.98)
                                 ]),
                                 startPoint: .leading,
                                 endPoint: .trailing
-                            ),
-                            lineWidth: 10
+                            )
                         )
-                        // Apply horizontal gradient mask for left side fade
-                        .mask(
-                            HStack(spacing: 0) {
-                                // Left side: full opacity
-                                RoundedLeftRectangle(radius: 12)
-                                    .frame(width: geometry.size.width * 0.4)
-                                
-                                // Center: fading gradient
-                                LinearGradient(
-                                    gradient: Gradient(colors: [Color.black, Color.clear]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                                .frame(width: geometry.size.width * 0.2)
-                                
-                                // Right side: fully transparent
-                                RoundedRightRectangle(radius: 12)
-                                    .fill(Color.clear)
-                                    .frame(width: geometry.size.width * 0.4)
-                            }
-                        )
+                        .frame(width: geometry.size.width * 0.5)
+                    
+                    // Right half without gradient
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(width: geometry.size.width * 0.5)
                 }
             } else if winner == .opponent {
-                // Opponent side winner - right side gradient border
-                ZStack {
-                    // Complete round rectangle for masking
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.clear, lineWidth: 10)
+                // Opponent side winner - right side rainbow fill
+                HStack(spacing: 0) {
+                    // Left half without gradient
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(width: geometry.size.width * 0.5)
                     
-                    // Main rainbow border
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(
+                    // Right half with rainbow gradient
+                    RoundedRightRectangle(radius: 12)
+                        .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color(red: 0.98, green: 0.7, blue: 0.6),  // Soft orange/peach
-                                    Color(red: 0.95, green: 0.95, blue: 0.6), // Soft yellow
-                                    Color(red: 0.7, green: 0.98, blue: 0.7),  // Soft green
-                                    Color(red: 0.6, green: 0.8, blue: 0.98)   // Soft blue
+                                    Color(red: 0.98, green: 0.7, blue: 0.6),
+                                    Color(red: 0.95, green: 0.95, blue: 0.6),
+                                    Color(red: 0.7, green: 0.98, blue: 0.7),
+                                    Color(red: 0.6, green: 0.8, blue: 0.98)
                                 ]),
                                 startPoint: .leading,
                                 endPoint: .trailing
-                            ),
-                            lineWidth: 10
+                            )
                         )
-                        // Apply horizontal gradient mask for right side fade
-                        .mask(
-                            HStack(spacing: 0) {
-                                // Left side: fully transparent
-                                RoundedLeftRectangle(radius: 12)
-                                    .fill(Color.clear)
-                                    .frame(width: geometry.size.width * 0.4)
-                                
-                                // Center: fading gradient
-                                LinearGradient(
-                                    gradient: Gradient(colors: [Color.clear, Color.black]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                                .frame(width: geometry.size.width * 0.2)
-                                
-                                // Right side: full opacity
-                                RoundedRightRectangle(radius: 12)
-                                    .frame(width: geometry.size.width * 0.4)
-                            }
-                        )
+                        .frame(width: geometry.size.width * 0.5)
                 }
             }
         }

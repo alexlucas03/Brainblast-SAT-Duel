@@ -32,7 +32,7 @@ struct RainbowButton: ViewModifier {
         content
             .font(.headline)
             .fontWeight(.semibold)
-            .foregroundColor(.white)
+            .foregroundColor(.black)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
             .background(
@@ -90,7 +90,7 @@ struct ContentView: View {
         NavigationStack {
             VStack {
                 if let username = dbManager.currentUsername {
-                    Text("Welcome, \(username)!")
+                    Text("Welcome, \(username.prefix(1).uppercased() + username.dropFirst())!")
                         .font(.title)
                         .padding()
 
