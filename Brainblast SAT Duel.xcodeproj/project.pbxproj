@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		C0700A812D879FFD0090F530 /* PostgresClientKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0700A802D879FFD0090F530 /* PostgresClientKit */; };
+		C0F3807B2D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0F380742D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C0F380832D88359E00EABF4A /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = C0F380822D88359E00EABF4A /* OneSignalExtension */; };
+		C0F380852D88359E00EABF4A /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = C0F380842D88359E00EABF4A /* OneSignalFramework */; };
+		C0F380872D88359E00EABF4A /* OneSignalInAppMessages in Frameworks */ = {isa = PBXBuildFile; productRef = C0F380862D88359E00EABF4A /* OneSignalInAppMessages */; };
+		C0F380892D88359E00EABF4A /* OneSignalLocation in Frameworks */ = {isa = PBXBuildFile; productRef = C0F380882D88359E00EABF4A /* OneSignalLocation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,13 +30,45 @@
 			remoteGlobalIDString = C02F824D2D87882E0006AD87;
 			remoteInfo = "Brainblast SAT Duel";
 		};
+		C0F380792D8834D100EABF4A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C02F82462D87882E0006AD87 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0F380732D8834D100EABF4A;
+			remoteInfo = OneSignalNotificationServiceExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C0F380802D8834D100EABF4A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C0F3807B2D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		C02F824E2D87882E0006AD87 /* Brainblast SAT Duel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Brainblast SAT Duel.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C02F82602D8788310006AD87 /* Brainblast SAT DuelTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Brainblast SAT DuelTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C02F826A2D8788310006AD87 /* Brainblast SAT DuelUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Brainblast SAT DuelUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0F380742D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OneSignalNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0F3807C2D8834D100EABF4A /* Exceptions for "OneSignalNotificationServiceExtension" folder in "OneSignalNotificationServiceExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C0F380732D8834D100EABF4A /* OneSignalNotificationServiceExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C02F82502D87882E0006AD87 /* Brainblast SAT Duel */ = {
@@ -49,6 +86,14 @@
 			path = "Brainblast SAT DuelUITests";
 			sourceTree = "<group>";
 		};
+		C0F380752D8834D100EABF4A /* OneSignalNotificationServiceExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0F3807C2D8834D100EABF4A /* Exceptions for "OneSignalNotificationServiceExtension" folder in "OneSignalNotificationServiceExtension" target */,
+			);
+			path = OneSignalNotificationServiceExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +101,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0F380872D88359E00EABF4A /* OneSignalInAppMessages in Frameworks */,
+				C0F380852D88359E00EABF4A /* OneSignalFramework in Frameworks */,
+				C0F380892D88359E00EABF4A /* OneSignalLocation in Frameworks */,
 				C0700A812D879FFD0090F530 /* PostgresClientKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -74,6 +122,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0F380712D8834D100EABF4A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0F380832D88359E00EABF4A /* OneSignalExtension in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -83,6 +139,7 @@
 				C02F82502D87882E0006AD87 /* Brainblast SAT Duel */,
 				C02F82632D8788310006AD87 /* Brainblast SAT DuelTests */,
 				C02F826D2D8788310006AD87 /* Brainblast SAT DuelUITests */,
+				C0F380752D8834D100EABF4A /* OneSignalNotificationServiceExtension */,
 				C02F824F2D87882E0006AD87 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -93,6 +150,7 @@
 				C02F824E2D87882E0006AD87 /* Brainblast SAT Duel.app */,
 				C02F82602D8788310006AD87 /* Brainblast SAT DuelTests.xctest */,
 				C02F826A2D8788310006AD87 /* Brainblast SAT DuelUITests.xctest */,
+				C0F380742D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -107,10 +165,12 @@
 				C02F824A2D87882E0006AD87 /* Sources */,
 				C02F824B2D87882E0006AD87 /* Frameworks */,
 				C02F824C2D87882E0006AD87 /* Resources */,
+				C0F380802D8834D100EABF4A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C0F3807A2D8834D100EABF4A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				C02F82502D87882E0006AD87 /* Brainblast SAT Duel */,
@@ -118,6 +178,9 @@
 			name = "Brainblast SAT Duel";
 			packageProductDependencies = (
 				C0700A802D879FFD0090F530 /* PostgresClientKit */,
+				C0F380842D88359E00EABF4A /* OneSignalFramework */,
+				C0F380862D88359E00EABF4A /* OneSignalInAppMessages */,
+				C0F380882D88359E00EABF4A /* OneSignalLocation */,
 			);
 			productName = "Brainblast SAT Duel";
 			productReference = C02F824E2D87882E0006AD87 /* Brainblast SAT Duel.app */;
@@ -169,6 +232,29 @@
 			productReference = C02F826A2D8788310006AD87 /* Brainblast SAT DuelUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C0F380732D8834D100EABF4A /* OneSignalNotificationServiceExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0F3807D2D8834D100EABF4A /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */;
+			buildPhases = (
+				C0F380702D8834D100EABF4A /* Sources */,
+				C0F380712D8834D100EABF4A /* Frameworks */,
+				C0F380722D8834D100EABF4A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0F380752D8834D100EABF4A /* OneSignalNotificationServiceExtension */,
+			);
+			name = OneSignalNotificationServiceExtension;
+			packageProductDependencies = (
+				C0F380822D88359E00EABF4A /* OneSignalExtension */,
+			);
+			productName = OneSignalNotificationServiceExtension;
+			productReference = C0F380742D8834D100EABF4A /* OneSignalNotificationServiceExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -190,6 +276,9 @@
 						CreatedOnToolsVersion = 16.2;
 						TestTargetID = C02F824D2D87882E0006AD87;
 					};
+					C0F380732D8834D100EABF4A = {
+						CreatedOnToolsVersion = 16.2;
+					};
 				};
 			};
 			buildConfigurationList = C02F82492D87882E0006AD87 /* Build configuration list for PBXProject "Brainblast SAT Duel" */;
@@ -203,6 +292,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C0700A7F2D879FFD0090F530 /* XCRemoteSwiftPackageReference "PostgresClientKit" */,
+				C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C02F824F2D87882E0006AD87 /* Products */;
@@ -212,6 +302,7 @@
 				C02F824D2D87882E0006AD87 /* Brainblast SAT Duel */,
 				C02F825F2D8788310006AD87 /* Brainblast SAT DuelTests */,
 				C02F82692D8788310006AD87 /* Brainblast SAT DuelUITests */,
+				C0F380732D8834D100EABF4A /* OneSignalNotificationServiceExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -232,6 +323,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C02F82682D8788310006AD87 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0F380722D8834D100EABF4A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -262,6 +360,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0F380702D8834D100EABF4A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -274,6 +379,11 @@
 			isa = PBXTargetDependency;
 			target = C02F824D2D87882E0006AD87 /* Brainblast SAT Duel */;
 			targetProxy = C02F826B2D8788310006AD87 /* PBXContainerItemProxy */;
+		};
+		C0F3807A2D8834D100EABF4A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0F380732D8834D100EABF4A /* OneSignalNotificationServiceExtension */;
+			targetProxy = C0F380792D8834D100EABF4A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -402,12 +512,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Brainblast SAT Duel/Brainblast SAT DuelDebug.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Brainblast SAT Duel/Preview Content\"";
-				DEVELOPMENT_TEAM = 5M2UP9R3N8;
+				DEVELOPMENT_TEAM = 3UVAFC82ET;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Brainblast-SAT-Duel-Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -437,6 +549,7 @@
 				DEVELOPMENT_TEAM = 5M2UP9R3N8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Brainblast-SAT-Duel-Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -527,6 +640,56 @@
 			};
 			name = Release;
 		};
+		C0F3807E2D8834D100EABF4A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3UVAFC82ET;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OneSignalNotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OneSignalNotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "interview-task.Brainblast-SAT-Duel.OneSignalNotificationServiceExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C0F3807F2D8834D100EABF4A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5M2UP9R3N8;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OneSignalNotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OneSignalNotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "interview-task.Brainblast-SAT-Duel.OneSignalNotificationServiceExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -566,6 +729,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C0F3807D2D8834D100EABF4A /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0F3807E2D8834D100EABF4A /* Debug */,
+				C0F3807F2D8834D100EABF4A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -577,6 +749,14 @@
 				kind = branch;
 			};
 		};
+		C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/OneSignal/OneSignal-XCFramework";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.2.10;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -584,6 +764,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0700A7F2D879FFD0090F530 /* XCRemoteSwiftPackageReference "PostgresClientKit" */;
 			productName = PostgresClientKit;
+		};
+		C0F380822D88359E00EABF4A /* OneSignalExtension */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */;
+			productName = OneSignalExtension;
+		};
+		C0F380842D88359E00EABF4A /* OneSignalFramework */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */;
+			productName = OneSignalFramework;
+		};
+		C0F380862D88359E00EABF4A /* OneSignalInAppMessages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */;
+			productName = OneSignalInAppMessages;
+		};
+		C0F380882D88359E00EABF4A /* OneSignalLocation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0F380812D88359E00EABF4A /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */;
+			productName = OneSignalLocation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

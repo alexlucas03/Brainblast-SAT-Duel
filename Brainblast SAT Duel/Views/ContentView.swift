@@ -2,10 +2,75 @@ import SwiftUI
 import Foundation
 import PostgresClientKit
 
+struct RainbowBorder: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.98, green: 0.7, blue: 0.6),  // Soft orange/peach
+                                Color(red: 0.95, green: 0.95, blue: 0.6), // Soft yellow
+                                Color(red: 0.7, green: 0.98, blue: 0.7),  // Soft green
+                                Color(red: 0.6, green: 0.8, blue: 0.98)   // Soft blue
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        lineWidth: 3
+                    )
+            )
+    }
+}
+
+struct RainbowButton: ViewModifier {
+    var isEnabled: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .font(.headline)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.98, green: 0.7, blue: 0.6),  // Soft orange/peach
+                                Color(red: 0.95, green: 0.95, blue: 0.6), // Soft yellow
+                                Color(red: 0.7, green: 0.98, blue: 0.7),  // Soft green
+                                Color(red: 0.6, green: 0.8, blue: 0.98)   // Soft blue
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            )
+            .opacity(isEnabled ? 1.0 : 0.6)
+            .padding(.horizontal)
+    }
+}
+
+// View model to track duel opponent and scores
+struct DuelViewModel: Identifiable {
+    let id: String
+    let duel: Duel
+    var opponentName: String = "Waiting..."
+    var userScore: Int = 0
+    var opponentScore: Int = 0
+    
+    var scoreText: String {
+        return "\(userScore)-\(opponentScore)"
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var dbManager: PostgresDBManager
-    @State private var duels: [Duel] = []
-    @State private var isDuelsLoading: Bool = true
+    @State private var duelViewModels: [DuelViewModel] = []
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
     @State private var alertTitle: String = "Error"
@@ -14,123 +79,126 @@ struct ContentView: View {
     @State private var showSuccessAlert: Bool = false
     @State private var successMessage: String = ""
     @State private var navigationDestination: NavigationDestination?
-    
+    @State private var isContentLoaded: Bool = false // Track if content is loaded
+
     enum NavigationDestination: Hashable {
         case duelDetail(Duel)
         case game(Duel, String) // Added userId
     }
-    
+
     var body: some View {
-        NavigationStack {
-            VStack {
-                if let username = dbManager.currentUsername {
-                    Text("Welcome, \(username)!")
-                        .font(.title)
-                        .padding()
-
-                    VStack(alignment: .leading) {
-                        Text("Your Duels")
-                            .font(.headline)
-                            .padding(.horizontal)
-
-                        if isDuelsLoading {
-                            ProgressView("Loading duels...")
+        Group {
+            if isContentLoaded {
+                NavigationStack {
+                    VStack {
+                        if let username = dbManager.currentUsername {
+                            Text("Welcome, \(username)!")
+                                .font(.title)
                                 .padding()
-                        } else if duels.isEmpty {
-                            Text("You're not in any duels yet.")
-                                .foregroundColor(.gray)
+
+                            Text("Here are your active duels:")
+                                .font(.title2)
                                 .padding()
-                        } else {
-                            List {
-                                ForEach(duels) { duel in
-                                    Button(action: {
-                                        determineDuelNavigation(duel: duel)
-                                    }) {
-                                        HStack {
-                                            VStack(alignment: .leading) {
-                                                Text("Room: \(duel.roomCode)")
-                                                    .font(.headline)
-                                                Text("Created: \(duel.createdAt, format: .dateTime)")
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                            }
 
-                                            Spacer()
+                            VStack(alignment: .leading) {
+                                if duelViewModels.isEmpty {
+                                    Text("You're not in any duels yet.")
+                                        .foregroundColor(.gray)
+                                        .padding()
+                                } else {
+                                    List {
+                                        ForEach(duelViewModels) { viewModel in
+                                            Button(action: {
+                                                determineDuelNavigation(duel: viewModel.duel)
+                                            }) {
+                                                HStack {
+                                                    // Left side - Opponent name
+                                                    Text(viewModel.opponentName)
+                                                        .font(.headline)
 
-                                            if duel.active {
-                                                Text("Active")
-                                                    .font(.caption)
-                                                    .foregroundColor(.green)
-                                            } else {
-                                                Text("Completed")
-                                                    .font(.caption)
-                                                    .foregroundColor(.gray)
+                                                    Spacer()
+
+                                                    // Right side - Score
+                                                    Text(viewModel.scoreText)
+                                                        .font(.headline)
+                                                        .padding(.horizontal, 10)
+                                                        .padding(.vertical, 4)
+                                                        .background(
+                                                            RoundedRectangle(cornerRadius: 8)
+                                                                .fill(Color.gray.opacity(0.2))
+                                                        )
+                                                }
+                                                .padding(.vertical, 4)
                                             }
                                         }
-                                        .padding(.vertical, 4)
                                     }
+                                    .listStyle(PlainListStyle())
+                                    .modifier(RainbowBorder())
+                                    .padding(.horizontal)
                                 }
                             }
-                            .listStyle(PlainListStyle())
+                            .frame(maxHeight: .infinity, alignment: .top)
+
+                            // Vertically stacked buttons with rainbow style
+                            VStack(spacing: 12) {
+                                Button("Join Duel") {
+                                    showJoinDuelSheet = true
+                                }
+                                .modifier(RainbowButton(isEnabled: true))
+
+                                Button("New Duel") {
+                                    startNewDuel()
+                                }
+                                .modifier(RainbowButton(isEnabled: true))
+                            }
+                            .padding(.vertical)
+
+                            Spacer()
+
+                            Button("Logout") {
+                                dbManager.logout()
+                            }
+                            .padding()
+                            .foregroundColor(.red)
                         }
                     }
-                    .frame(maxHeight: .infinity)
-
-                    HStack(spacing: 20) {
-                        Button("Join Duel") {
-                            showJoinDuelSheet = true
+                    .navigationDestination(item: $navigationDestination) { destination in
+                        switch destination {
+                        case .duelDetail(let duel):
+                            DuelDetailView(duel: duel)
+                        case .game(let duel, let userId):
+                            GameView(duel: duel, userId: userId)
                         }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-
-                        Button("Start Duel") {
-                            startNewDuel()
+                    }
+                    .onAppear {
+                        loadDuels()
+                    }
+                    .alert(isPresented: $showAlert) {
+                        Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+                    }
+                    .sheet(isPresented: $showJoinDuelSheet) {
+                        joinDuelView
+                    }
+                    .alert("Success", isPresented: $showSuccessAlert) {
+                        Button("OK", role: .cancel) {
+                            loadDuels()
                         }
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                    } message: {
+                        Text(successMessage)
                     }
-                    .padding()
-
-                    Spacer()
-
-                    Button("Logout") {
-                        dbManager.logout()
+                }
+                .background(Color.white)
+            } else {
+                LoadingView()
+                    .onAppear {
+                        loadInitialData()
                     }
-                    .padding()
-                    .foregroundColor(.red)
-                }
-            }
-            .navigationTitle("Brainblast SAT Duel")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $navigationDestination) { destination in
-                switch destination {
-                case .duelDetail(let duel):
-                    DuelDetailView(duel: duel)
-                case .game(let duel, let userId):
-                    GameView(duel: duel, userId: userId)
-                }
-            }
-            .onAppear {
-                loadDuels()
-            }
-            .alert(isPresented: $showAlert) {
-                Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
-            }
-            .sheet(isPresented: $showJoinDuelSheet) {
-                joinDuelView
-            }
-            .alert("Success", isPresented: $showSuccessAlert) {
-                Button("OK", role: .cancel) {
-                    loadDuels()
-                }
-            } message: {
-                Text(successMessage)
             }
         }
+    }
+
+    func loadInitialData() {
+        loadDuels()
     }
 
     private var joinDuelView: some View {
@@ -148,10 +216,7 @@ struct ContentView: View {
                 joinDuel(code: duelCode)
                 showJoinDuelSheet = false
             }
-            .padding()
-            .background(Color.blue)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+            .modifier(RainbowButton(isEnabled: !duelCode.isEmpty))
             .disabled(duelCode.isEmpty)
 
             Button("Cancel") {
@@ -165,24 +230,71 @@ struct ContentView: View {
     }
 
     private func loadDuels() {
-        isDuelsLoading = true
 
         if let userId = dbManager.currentUserId {
             dbManager.getUserDuels(userId: userId) { fetchedDuels, error in
-                DispatchQueue.main.async {
-                    isDuelsLoading = false
-
-                    if let error = error {
+                if let error = error {
+                    DispatchQueue.main.async {
                         alertTitle = "Error"
                         alertMessage = "Failed to load duels: \(error.localizedDescription)"
                         showAlert = true
-                    } else if let fetchedDuels = fetchedDuels {
-                        duels = fetchedDuels
+                        isContentLoaded = true // Set isContentLoaded on error
                     }
+                    return
+                }
+                
+                guard let fetchedDuels = fetchedDuels else {
+                    DispatchQueue.main.async {
+                        isContentLoaded = true // Set isContentLoaded when no duels
+                    }
+                    return
+                }
+                
+                // Create view models for each duel
+                var viewModels: [DuelViewModel] = fetchedDuels.map { DuelViewModel(id: $0.id, duel: $0) }
+                
+                // Use a dispatch group to wait for all the participant data to load
+                let group = DispatchGroup()
+                
+                // Load participants for each duel
+                for (index, duel) in fetchedDuels.enumerated() {
+                    group.enter()
+                    print("group enter")
+                    dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
+                        defer {
+                            group.leave()
+                            print("group leave")
+                        }
+                        
+                        guard let participants = participants, error == nil else { return }
+                        
+                        // Find the current user and opponent
+                        if let currentUsername = dbManager.currentUsername {
+                            let currentUserParticipant = participants.first(where: { $0.username == currentUsername })
+                            let opponentParticipant = participants.first(where: { $0.username != currentUsername })
+                            
+                            DispatchQueue.main.async {
+                                if let opponent = opponentParticipant {
+                                    viewModels[index].opponentName = opponent.username
+                                    viewModels[index].opponentScore = opponent.score
+                                }
+                                
+                                if let currentUser = currentUserParticipant {
+                                    viewModels[index].userScore = currentUser.score
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // When all participants are loaded, update the UI
+                group.notify(queue: .main) {
+                    duelViewModels = viewModels
+                    isContentLoaded = true // Set isContentLoaded on success
                 }
             }
         } else {
-            isDuelsLoading = false
+            isContentLoaded = true // set isContentLoaded if there is no user id.
         }
     }
 

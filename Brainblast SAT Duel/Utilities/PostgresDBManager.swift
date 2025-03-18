@@ -40,6 +40,54 @@ class PostgresDBManager: ObservableObject {
         return try Connection(configuration: connectionConfig)
     }
     
+    func checkInitialLoginStatus(completion: @escaping (Bool) -> Void) {
+        // Verify the saved login state
+        guard isLoggedIn,
+              let userId = currentUserId,
+              let username = currentUsername else {
+            // If no saved login, immediately return false
+            completion(false)
+            return
+        }
+        
+        // Optionally, add a database check to validate the user's existence
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Verify the user exists in the database
+                let query = "SELECT id FROM users WHERE id = $1 AND username = $2;"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute(parameterValues: [userId, username])
+                defer { cursor.close() }
+                
+                if try cursor.next() != nil {
+                    // User exists, login is valid
+                    DispatchQueue.main.async {
+                        completion(true)
+                    }
+                } else {
+                    // User not found, reset login state
+                    DispatchQueue.main.async {
+                        self.logout()
+                        completion(false)
+                    }
+                }
+            } catch {
+                // Error checking user, treat as login failed
+                print("Error checking initial login status: \(error)")
+                DispatchQueue.main.async {
+                    self.logout()
+                    completion(false)
+                }
+            }
+        }
+    }
+
+    
     // MARK: - Authentication Methods for LoginView
     
     // Method used by LoginView to log in or auto-create users
@@ -642,6 +690,58 @@ class PostgresDBManager: ObservableObject {
                 print("Error recording answer: \(error)")
                 DispatchQueue.main.async {
                     completion(false, error)
+                }
+            }
+        }
+    }
+    
+    func getDuelAnswers(duelId: String, completion: @escaping ([Answer]?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+
+                // Query to get answers for this duel, ordered by id to get chronological order
+                let query = """
+                    SELECT user_id, time_taken, is_correct, 
+                           ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY id) AS question_number
+                    FROM answers
+                    WHERE duel_id = $1
+                    ORDER BY id;
+                """
+                
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+
+                let cursor = try statement.execute(parameterValues: [duelId])
+                defer { cursor.close() }
+
+                var answers: [Answer] = []
+
+                while let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    
+                    let userId = try row.columns[0].string()
+                    let timeTaken = try row.columns[1].int()
+                    let isCorrect = try row.columns[2].bool()
+                    let questionNumber = try row.columns[3].int()
+                    
+                    answers.append(Answer(
+                        userId: userId,
+                        questionNumber: questionNumber,
+                        timeTaken: timeTaken,
+                        isCorrect: isCorrect
+                    ))
+                }
+                print(answers)
+
+                DispatchQueue.main.async {
+                    completion(answers, nil)
+                }
+            } catch {
+                print("Error getting duel answers: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
                 }
             }
         }

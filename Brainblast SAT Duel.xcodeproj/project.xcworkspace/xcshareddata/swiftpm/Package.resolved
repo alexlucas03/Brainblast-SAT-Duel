@@ -1,5 +1,5 @@
 {
-  "originHash" : "2abe45c9c7f5bbb0bffe7e66507bcd393ecf4e65b5c4558f72be7c4760abaffe",
+  "originHash" : "d846bae23686b850962d3dd7511bb6fa35cebb22dad34c45ff41531018b0095d",
   "pins" : [
     {
       "identity" : "bluesocket",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "b27a94d063962dfa1bba9f79814c4ef202cf33a4",
         "version" : "2.0.2"
+      }
+    },
+    {
+      "identity" : "onesignal-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/OneSignal/OneSignal-XCFramework",
+      "state" : {
+        "revision" : "a7df0fa1cb25ae2920b6ee01fe703fec50639256",
+        "version" : "5.2.10"
       }
     },
     {
