@@ -55,13 +55,18 @@ struct RainbowButton: ViewModifier {
     }
 }
 
-// View model to track duel opponent and scores
 struct DuelViewModel: Identifiable {
     let id: String
     let duel: Duel
-    var opponentName: String = "Waiting..."
+    var opponentName: String
     var userScore: Int = 0
     var opponentScore: Int = 0
+    
+    init(id: String, duel: Duel) {
+        self.id = id
+        self.duel = duel
+        self.opponentName = "Duel Code: \(duel.roomCode)"
+    }
     
     var scoreText: String {
         return "\(userScore)-\(opponentScore)"
@@ -111,9 +116,33 @@ struct ContentView: View {
                                         determineDuelNavigation(duel: viewModel.duel)
                                     }) {
                                         HStack {
-                                            // Left side - Opponent name
-                                            Text(viewModel.opponentName)
-                                                .font(.headline)
+                                            // Left side - Opponent name and copy button for room code
+                                            VStack(alignment: .leading) {
+                                                if viewModel.opponentName.hasPrefix("Duel Code:") {
+                                                    HStack(spacing: 4) {
+                                                        Text("Duel Code:")
+                                                            .font(.headline)
+                                                        
+                                                        Text(viewModel.duel.roomCode)
+                                                            .font(.system(.body, design: .monospaced))
+                                                            .fontWeight(.bold)
+                                                        
+                                                        Button(action: {
+                                                            UIPasteboard.general.string = viewModel.duel.roomCode
+                                                            alertTitle = "Success"
+                                                            alertMessage = "Room code copied to clipboard!"
+                                                            showAlert = true
+                                                        }) {
+                                                            Image(systemName: "doc.on.doc")
+                                                                .font(.caption)
+                                                        }
+                                                        .disabled(appState.isShowingLoadingView)
+                                                    }
+                                                } else {
+                                                    Text("You vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+                                                        .font(.headline)
+                                                }
+                                            }
 
                                             Spacer()
 
@@ -139,6 +168,7 @@ struct ContentView: View {
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
 
+                    // The rest of your existing code...
                     // Vertically stacked buttons with rainbow style
                     VStack(spacing: 12) {
                         Button("Join Duel") {
@@ -159,7 +189,7 @@ struct ContentView: View {
                     Spacer()
 
                     Button("Logout") {
-                        appState.startLoading()  // Use loading instead of navigating
+                        appState.startLoading()
                         performLogout()
                     }
                     .padding()
@@ -172,25 +202,20 @@ struct ContentView: View {
                 case .duelDetail(let duel):
                     DuelDetailView(duel: duel)
                         .onAppear {
-                            // Stop navigation loading when destination appears
                             appState.stopNavigating()
                         }
                 case .game(let duel, let userId):
                     GameView(duel: duel, userId: userId)
                         .onAppear {
-                            // Stop navigation loading when destination appears
                             appState.stopNavigating()
                         }
                 }
             }
             .onAppear {
-                // Start loading data when view appears
                 if duelViewModels.isEmpty {
                     appState.startLoading()
                     loadDuels()
                 }
-                
-                // Stop navigation loading when coming back to ContentView
                 appState.stopNavigating()
             }
             .alert(isPresented: $showAlert) {
@@ -315,21 +340,7 @@ struct ContentView: View {
 
         dbManager.joinDuel(userId: userId, roomCode: code) { success, error in
             DispatchQueue.main.async {
-                appState.stopLoading() // Stop loading when join operation completes
-                
-                if success {
-                    successMessage = "You've joined the duel with code: \(code)"
-                    showSuccessAlert = true
-                    duelCode = ""
-                    
-                    // Reload duels after joining
-                    appState.startLoading()
-                    loadDuels()
-                } else {
-                    alertTitle = "Error"
-                    alertMessage = "Failed to join duel: \(error?.localizedDescription ?? "Unknown error")"
-                    showAlert = true
-                }
+                self.loadDuels()
             }
         }
     }
@@ -342,20 +353,8 @@ struct ContentView: View {
 
         dbManager.createDuel(creatorId: userId) { success, roomCode, error in
             DispatchQueue.main.async {
-                appState.stopLoading() // Stop loading when create operation completes
-                
-                if success, let roomCode = roomCode {
-                    successMessage = "New duel created! Share this code with your opponent: \(roomCode)"
-                    showSuccessAlert = true
-                    
-                    // Reload duels after creation
-                    appState.startLoading()
-                    loadDuels()
-                } else {
-                    alertTitle = "Error"
-                    alertMessage = "Failed to create duel: \(error?.localizedDescription ?? "Unknown error")"
-                    showAlert = true
-                }
+                self.loadDuels()
+                appState.stopLoading()
             }
         }
     }
@@ -366,14 +365,35 @@ struct ContentView: View {
             return
         }
         
-        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
-            DispatchQueue.main.async {
-                if let isTurn = isTurn {
-                    navigationDestination = isTurn
-                        ? .game(duel, userId)
-                        : .duelDetail(duel)
+        // First, check if the game is over by loading participants and checking scores
+        dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
+            if let participants = participants, participants.count == 2 {
+                // Check if either player has reached 3 points (game is over)
+                let isGameOver = participants.contains { $0.score >= 3 }
+                
+                if isGameOver {
+                    // If game is over, go directly to detail view which will show results
+                    DispatchQueue.main.async {
+                        navigationDestination = .duelDetail(duel)
+                    }
                 } else {
-                    // Fallback to DuelDetailView if unable to determine turn
+                    // Game is not over, now check if it's user's turn
+                    dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+                        DispatchQueue.main.async {
+                            if let isTurn = isTurn {
+                                navigationDestination = isTurn
+                                    ? .game(duel, userId)
+                                    : .duelDetail(duel)
+                            } else {
+                                // Fallback to DuelDetailView if unable to determine turn
+                                navigationDestination = .duelDetail(duel)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // If we can't determine participants/scores, fallback to detail view
+                DispatchQueue.main.async {
                     navigationDestination = .duelDetail(duel)
                 }
             }

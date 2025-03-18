@@ -122,6 +122,7 @@ struct DuelDetailView: View {
     @State private var answers: [Answer] = []
     @State private var rounds: [Round] = []
     @State private var isUsersTurn: Bool = false
+    @State private var gameOver: Bool = false
     
     // For winner determination
     private enum RoundWinner {
@@ -132,6 +133,61 @@ struct DuelDetailView: View {
     }
     
     var body: some View {
+        ZStack {
+            duelActiveView
+            
+            // Navigation link to DuelResultView when game is over
+            NavigationLink(
+                destination: Group {
+                    if let currentUser = currentUser, let opponent = opponent {
+                        DuelResultView(
+                            navigateToHome: $navigateToHome,
+                            isWinner: currentUser.score >= 3,
+                            opponentName: opponent.username,
+                            userScore: currentUser.score,
+                            opponentScore: opponent.score
+                        )
+                    } else {
+                        EmptyView()
+                    }
+                },
+                isActive: $gameOver
+            ) {
+                EmptyView()
+            }
+        }
+        .background(Color.white)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarHidden(true)
+        .alert(isPresented: $showAlert) {
+            Alert(
+                title: Text(alertTitle),
+                message: Text(alertMessage),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        // Navigation link to Content View with improved loading handling
+        NavigationLink(destination: ContentView()
+            .navigationBarBackButtonHidden(true)
+            .onAppear {
+                // Reset navigation state when destination appears
+                appState.stopNavigating()
+            },
+            isActive: $navigateToHome
+        ) {
+            EmptyView()
+        }
+        .hidden()
+        .onAppear {
+            // Load initial data when view appears
+            appState.startLoading()
+            loadData()
+        }
+    }
+    
+    // The original duel view when game is still active
+    private var duelActiveView: some View {
         ScrollView {
             // Main content
             VStack(spacing: 16) {
@@ -153,30 +209,6 @@ struct DuelDetailView: View {
                             .clipShape(Circle())
                     }
                     .disabled(appState.isShowingLoadingView)
-                    
-                    Spacer()
-                    
-                    // Duel code in the middle
-                    HStack(spacing: 4) {
-                        Text(duel.roomCode)
-                            .font(.system(.body, design: .monospaced))
-                            .fontWeight(.bold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(8)
-                        
-                        Button(action: {
-                            UIPasteboard.general.string = duel.roomCode
-                            alertTitle = "Success"
-                            alertMessage = "Room code copied to clipboard!"
-                            showAlert = true
-                        }) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .disabled(appState.isShowingLoadingView)
-                    }
                     
                     Spacer()
                     
@@ -353,40 +385,11 @@ struct DuelDetailView: View {
                 Spacer()
             }
         }
-        .background(Color.white)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(true)
-        .alert(isPresented: $showAlert) {
-            Alert(
-                title: Text(alertTitle),
-                message: Text(alertMessage),
-                dismissButton: .default(Text("OK"))
-            )
-        }
         .refreshable {
             loadData()
         }
         // Disable refreshing during loading
         .disabled(appState.isShowingLoadingView)
-        
-        // Navigation link to Content View with improved loading handling
-        NavigationLink(destination: ContentView()
-            .navigationBarBackButtonHidden(true)
-            .onAppear {
-                // Reset navigation state when destination appears
-                appState.stopNavigating()
-            },
-            isActive: $navigateToHome
-        ) {
-            EmptyView()
-        }
-        .hidden()
-        .onAppear {
-            // Load initial data when view appears
-            appState.startLoading()
-            loadData()
-        }
     }
     
     private func loadData() {
@@ -497,6 +500,16 @@ struct DuelDetailView: View {
                     if let currentUsername = dbManager.currentUsername {
                         currentUser = fetchedParticipants.first(where: { $0.username == currentUsername })
                         opponent = fetchedParticipants.first(where: { $0.username != currentUsername })
+                        
+                        // Check if game is over (either player has 3 or more points)
+                        if let user = currentUser, let opp = opponent {
+                            let isGameOver = user.score >= 3 || opp.score >= 3
+                            
+                            // If the game is newly over, trigger navigation
+                            if isGameOver && !gameOver {
+                                gameOver = true
+                            }
+                        }
                     }
                 }
                 
@@ -543,24 +556,37 @@ struct DuelDetailView: View {
     }
     
     private func processAnswersIntoRounds(answers: [Answer], userId: String) {
-        // Group answers by question number
-        let answersDict = Dictionary(grouping: answers, by: { $0.questionNumber })
+        // Step 1: First separate user answers and opponent answers
+        let userAnswers = answers.filter { $0.userId == userId }
+        let opponentAnswers = answers.filter { $0.userId != userId }
         
-        // Sort by question number and create rounds
-        rounds = answersDict.keys.sorted().map { questionNumber in
-            let questionAnswers = answersDict[questionNumber] ?? []
-            
-            let userAnswer = questionAnswers.first { $0.userId == userId }
-            let opponentAnswer = questionAnswers.first { $0.userId != userId }
-            
-            return Round(
-                questionNumber: questionNumber,
-                userAnswer: userAnswer,
-                opponentAnswer: opponentAnswer
-            )
+        // Sort answers
+        let sortedOpponentAnswers = opponentAnswers.sorted(by: { $0.questionNumber < $1.questionNumber })
+        let sortedUserAnswers = userAnswers.sorted(by: { $0.questionNumber < $1.questionNumber })
+        
+        // Step 3: Create rounds
+        var allRounds: [Round] = []
+        let maxQuestionNumber = max(sortedUserAnswers.count, sortedOpponentAnswers.count)
+        
+        if maxQuestionNumber > 0 {
+            for questionNum in 1...maxQuestionNumber {
+                // Get user answer from our corrected mapping
+                let userAnswer = sortedUserAnswers.first { $0.questionNumber == questionNum }
+                
+                // Get opponent answer the normal way - they're correctly ordered
+                let opponentAnswer = sortedOpponentAnswers.first { $0.questionNumber == questionNum }
+                
+                allRounds.append(Round(
+                    questionNumber: questionNum,
+                    userAnswer: userAnswer,
+                    opponentAnswer: opponentAnswer
+                ))
+            }
         }
+        
+        self.rounds = allRounds
     }
-    
+
     private func leaveDuel() {
         guard let userId = dbManager.currentUserId else {
             appState.stopLoading()
