@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GameView: View {
     @EnvironmentObject private var dbManager: PostgresDBManager
+    @EnvironmentObject private var appState: AppState
     @State private var elapsedTime: Double = 0
     @State private var question: String = "Loading question..."
     @State private var options: [String] = ["", "", "", ""]
@@ -9,100 +10,100 @@ struct GameView: View {
     @State private var selectedAnswer: String?
     @State private var timer: Timer?
     @State private var navigateToDetailView = false
-    @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var isGameViewLoaded = false
 
     var duel: Duel
     var userId: String
 
     var body: some View {
-        Group {
-            if !isGameViewLoaded {
-                LoadingView()
-                    .onAppear {
-                        loadInitialData()
-                    }
-            } else {
-                ZStack {
-                    if isLoading {
-                        LoadingView()
-                    } else if let error = errorMessage {
-                        VStack {
-                            Text("Error loading question")
-                                .font(.headline)
-                                .foregroundColor(.red)
-                            Text(error)
-                                .foregroundColor(.red)
-                            Button("Return to Duel") {
+        ZStack {
+            // Main game content
+            VStack {
+                if let error = errorMessage {
+                    // Error display
+                    VStack {
+                        Text("Error loading question")
+                            .font(.headline)
+                            .foregroundColor(.red)
+                        Text(error)
+                            .foregroundColor(.red)
+                        Button("Return to Duel") {
+                            appState.startNavigating()
+                            // Slight delay before actual navigation
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 navigateToDetailView = true
                             }
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
                         }
                         .padding()
-                    } else {
-                        VStack {
-                            Text("Time: \(Int(elapsedTime)) seconds")
-                                .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .disabled(appState.isShowingLoadingView)
+                    }
+                    .padding()
+                } else {
+                    // Game UI
+                    Text("Time: \(Int(elapsedTime)) seconds")
+                        .padding()
 
-                            Text(question)
-                                .font(.title)
-                                .padding()
-                                .multilineTextAlignment(.center)
+                    Text(question)
+                        .font(.title)
+                        .padding()
+                        .multilineTextAlignment(.center)
 
-                            VStack(spacing: 12) {
-                                ForEach(options.indices, id: \.self) { index in
-                                    Button(action: {
-                                        selectedAnswer = options[index]
-                                        checkAnswer(options[index])
-                                    }) {
-                                        Text(options[index])
-                                            .frame(maxWidth: .infinity)
-                                            .padding()
-                                            .background(
-                                                selectedAnswer == options[index]
-                                                    ? Color.blue.opacity(0.7)
-                                                    : Color.gray.opacity(0.2)
-                                            )
-                                            .foregroundColor(
-                                                selectedAnswer == options[index]
-                                                    ? Color.white
-                                                    : Color.primary
-                                            )
-                                            .cornerRadius(10)
-                                    }
-                                    .padding(.horizontal)
-                                    .disabled(selectedAnswer != nil)
-                                }
+                    VStack(spacing: 12) {
+                        ForEach(options.indices, id: \.self) { index in
+                            Button(action: {
+                                selectedAnswer = options[index]
+                                appState.startLoading()
+                                checkAnswer(options[index])
+                            }) {
+                                Text(options[index])
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(
+                                        selectedAnswer == options[index]
+                                            ? Color.blue.opacity(0.7)
+                                            : Color.gray.opacity(0.2)
+                                    )
+                                    .foregroundColor(
+                                        selectedAnswer == options[index]
+                                            ? Color.white
+                                            : Color.primary
+                                    )
+                                    .cornerRadius(10)
                             }
-                            .padding(.vertical)
-
-                            Spacer()
+                            .padding(.horizontal)
+                            .disabled(selectedAnswer != nil || appState.isShowingLoadingView)
                         }
-                        .padding()
                     }
+                    .padding(.vertical)
 
-                    // Hidden navigation link
-                    NavigationLink(destination: DuelDetailView(duel: duel), isActive: $navigateToDetailView) {
-                        EmptyView()
-                    }
-                    .hidden()
+                    Spacer()
                 }
             }
+            .padding()
+
+            // Hidden navigation link
+            NavigationLink(
+                destination: DuelDetailView(duel: duel)
+                    .onAppear {
+                        // Reset navigation state when destination appears
+                        appState.stopNavigating()
+                    },
+                isActive: $navigateToDetailView
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        }
+        .onAppear {
+            // Load question when view appears
+            appState.startLoading()
+            loadQuestion()
         }
         .onDisappear {
             stopTimer()
-        }
-    }
-
-    private func loadInitialData() {
-        // Simulate some initial setup if needed
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            loadQuestion()
-            isGameViewLoaded = true
         }
     }
 
@@ -127,12 +128,22 @@ struct GameView: View {
                 print("Answer recorded successfully")
                 updateTurn()
 
+                // Switch from loading to navigating state
+                DispatchQueue.main.async {
+                    appState.stopLoading()
+                    appState.startNavigating()
+                }
+
+                // Navigation delay after answering
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     navigateToDetailView = true
                 }
             } else {
-                print("Error recording answer: \(error?.localizedDescription ?? "Unknown error")")
-                errorMessage = "Failed to record your answer. Please try again."
+                DispatchQueue.main.async {
+                    appState.stopLoading()
+                    print("Error recording answer: \(error?.localizedDescription ?? "Unknown error")")
+                    errorMessage = "Failed to record your answer. Please try again."
+                }
             }
         }
     }
@@ -148,9 +159,10 @@ struct GameView: View {
     }
 
     private func loadQuestion() {
-        isLoading = true
         dbManager.getCurrentQuestion(duelId: duel.id) { questionData, error in
             DispatchQueue.main.async {
+                appState.stopLoading()
+                
                 if let question = questionData {
                     self.question = question.questionText
                     self.options = [
@@ -160,10 +172,8 @@ struct GameView: View {
                         question.optionD
                     ]
                     self.correctOption = question.correctOption
-                    self.isLoading = false
                     self.startTimer()
                 } else {
-                    self.isLoading = false
                     self.errorMessage = error?.localizedDescription ?? "Failed to load question"
                     print("Error loading question: \(error?.localizedDescription ?? "Unknown error")")
                 }
@@ -176,5 +186,6 @@ struct GameView_Previews: PreviewProvider {
     static var previews: some View {
         GameView(duel: Duel(id: "testId", roomCode: "TEST", creatorId: "test", createdAt: Date(), completedAt: nil, active: true), userId: "testUserId")
             .environmentObject(PostgresDBManager())
+            .environmentObject(AppState())
     }
 }

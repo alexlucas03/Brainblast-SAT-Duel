@@ -108,23 +108,20 @@ struct RoundedRightRectangle: Shape {
 
 struct DuelDetailView: View {
     @EnvironmentObject private var dbManager: PostgresDBManager
+    @EnvironmentObject private var appState: AppState
     @Environment(\.presentationMode) var presentationMode
     let duel: Duel
     
     @State private var participants: [User] = []
     @State private var currentUser: User?
     @State private var opponent: User?
-    @State private var isLoading: Bool = true
     @State private var showAlert: Bool = false
     @State private var alertTitle: String = "Error"
     @State private var alertMessage: String = ""
     @State private var navigateToHome: Bool = false
     @State private var answers: [Answer] = []
     @State private var rounds: [Round] = []
-    @State private var isLoadingAnswers: Bool = true
     @State private var isUsersTurn: Bool = false
-    @State private var showLoadingScreen: Bool = true
-    @State private var isViewLoaded: Bool = false
     
     // For winner determination
     private enum RoundWinner {
@@ -135,239 +132,227 @@ struct DuelDetailView: View {
     }
     
     var body: some View {
-        Group {
-            if !isViewLoaded {
-                LoadingView()
-                    .onAppear {
-                        loadInitialData()
-                    }
-            } else {
-                ZStack {
-                    if showLoadingScreen {
-                        LoadingView()
-                    } else {
-                        ScrollView {
-                            // Main content (previous code remains the same)
-                            VStack(spacing: 16) {
-                                // Top header with home button, duel code, and leave button
-                                HStack {
-                                    // Home button
-                                    Button(action: {
-                                        navigateToHome = true
-                                    }) {
-                                        Image(systemName: "house.fill")
-                                            .font(.title3)
-                                            .foregroundColor(.blue)
-                                            .padding(10)
-                                            .background(Color.blue.opacity(0.1))
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    // Duel code in the middle
-                                    HStack(spacing: 4) {
-                                        Text(duel.roomCode)
-                                            .font(.system(.body, design: .monospaced))
-                                            .fontWeight(.bold)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.gray.opacity(0.2))
-                                            .cornerRadius(8)
-                                        
-                                        Button(action: {
-                                            UIPasteboard.general.string = duel.roomCode
-                                            alertTitle = "Success"
-                                            alertMessage = "Room code copied to clipboard!"
-                                            showAlert = true
-                                        }) {
-                                            Image(systemName: "doc.on.doc")
-                                                .font(.caption)
-                                        }
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    // Leave duel button
-                                    Button(action: {
-                                        leaveDuel()
-                                    }) {
-                                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                                            .font(.title3)
-                                            .foregroundColor(.red)
-                                            .padding(10)
-                                            .background(Color.red.opacity(0.1))
-                                            .clipShape(Circle())
-                                    }
-                                }
-                                .padding(.horizontal)
-                                
-                                // Top section with player names and scores
-                                if let currentUser = currentUser, let opponent = opponent {
-                                    HStack {
-                                        // Current user - using actual username
-                                        VStack {
-                                            Text(currentUser.username)
-                                                .font(.headline)
-                                                .padding(.bottom, 4)
-                                            
-                                            Text("\(currentUser.score)")
-                                                .font(.title)
-                                                .fontWeight(.bold)
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        
-                                        ZStack {
-                                            GIFView(gifName: "bullet")
-                                                .frame(width: 60, height: 60)
-                                                .rotationEffect(.degrees(-90))
-                                                .scaleEffect(x: 1, y: -1)
-                                        }
-                                        .padding(5)
-                                        
-                                        // Opponent
-                                        VStack {
-                                            Text(opponent.username)
-                                                .font(.headline)
-                                                .padding(.bottom, 4)
-                                            
-                                            Text("\(opponent.score)")
-                                                .font(.title)
-                                                .fontWeight(.bold)
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                    }
-                                    .padding()
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .strokeBorder(
-                                                LinearGradient(
-                                                    gradient: Gradient(colors: [
-                                                        Color(red: 0.98, green: 0.7, blue: 0.6),
-                                                        Color(red: 0.95, green: 0.95, blue: 0.6),
-                                                        Color(red: 0.7, green: 0.98, blue: 0.7),
-                                                        Color(red: 0.6, green: 0.8, blue: 0.98)
-                                                    ]),
-                                                    startPoint: .leading,
-                                                    endPoint: .trailing
-                                                ),
-                                                lineWidth: 3
-                                            )
-                                    )
-                                    .padding(.horizontal)
-                                } else if isLoading {
-                                    ProgressView("Loading participants...")
-                                        .padding()
-                                } else {
-                                    Text("Waiting for opponent...")
-                                        .foregroundColor(.gray)
-                                        .padding()
-                                }
-                                
-                                // Round history section
-                                VStack(spacing: 12) {
-                                    if isLoadingAnswers {
-                                        ProgressView("Loading round history...")
-                                            .padding()
-                                    } else if rounds.isEmpty {
-                                        Text("No rounds played yet")
-                                            .foregroundColor(.gray)
-                                            .padding()
-                                    } else {
-                                        ForEach(rounds, id: \.questionNumber) { round in
-                                            // Entire round card with winner's half border
-                                            ZStack {
-                                                // Background
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(Color.gray.opacity(0.1))
-                                                
-                                                // Content
-                                                VStack(spacing: 8) {
-                                                    // Question header
-                                                    Text("Question \(round.questionNumber)")
-                                                        .font(.subheadline)
-                                                        .fontWeight(.medium)
-                                                        .frame(maxWidth: .infinity, alignment: .center)
-                                                        .padding(.top, 12)
-                                                        .padding(.bottom, 4)
-                                                    
-                                                    // Result indicators
-                                                    HStack {
-                                                        // User result
-                                                        VStack {
-                                                            if round.userAnswer != nil {
-                                                                Image(systemName: round.userCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                                                    .foregroundColor(round.userCorrect ? .green : .red)
-                                                                    .font(.title2)
-                                                                
-                                                                if let time = round.userTime {
-                                                                    Text("\(time)s")
-                                                                        .font(.caption)
-                                                                        .foregroundColor(.gray)
-                                                                }
-                                                            } else {
-                                                                Image(systemName: "questionmark.circle.fill")
-                                                                    .foregroundColor(.gray)
-                                                                    .font(.title2)
-                                                                Text("Waiting")
-                                                                    .font(.caption)
-                                                                    .foregroundColor(.gray)
-                                                            }
-                                                        }
-                                                        .frame(maxWidth: .infinity)
-                                                        .padding(.vertical, 10)
-                                                        
-                                                        // VS divider
-                                                        Divider()
-                                                            .frame(height: 40)
-                                                        
-                                                        // Opponent result
-                                                        VStack {
-                                                            if round.opponentAnswer != nil {
-                                                                Image(systemName: round.opponentCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                                                    .foregroundColor(round.opponentCorrect ? .green : .red)
-                                                                    .font(.title2)
-                                                                
-                                                                if let time = round.opponentTime {
-                                                                    Text("\(time)s")
-                                                                        .font(.caption)
-                                                                        .foregroundColor(.gray)
-                                                                }
-                                                            } else {
-                                                                Image(systemName: "questionmark.circle.fill")
-                                                                    .foregroundColor(.gray)
-                                                                    .font(.title2)
-                                                                Text("Waiting")
-                                                                    .font(.caption)
-                                                                    .foregroundColor(.gray)
-                                                            }
-                                                        }
-                                                        .frame(maxWidth: .infinity)
-                                                        .padding(.vertical, 10)
-                                                    }
-                                                    .padding(.horizontal)
-                                                }
-                                                .zIndex(1) // Content stays above background but below the border
-                                                
-                                                // Fading border for winner
-                                                fadingBorderForWinner(round: round)
-                                                    .zIndex(2) // Makes sure border is above everything
-                                            }
-                                            .padding(.horizontal)
-                                        }
-                                    }
-                                }
-                                
-                                Spacer()
-                            }
+        ScrollView {
+            // Main content
+            VStack(spacing: 16) {
+                // Top header with home button, duel code, and leave button
+                HStack {
+                    // Home button
+                    Button(action: {
+                        appState.startNavigating()
+                        // Slight delay before actual navigation
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            navigateToHome = true
                         }
+                    }) {
+                        Image(systemName: "house.fill")
+                            .font(.title3)
+                            .foregroundColor(.blue)
+                            .padding(10)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .disabled(appState.isShowingLoadingView)
+                    
+                    Spacer()
+                    
+                    // Duel code in the middle
+                    HStack(spacing: 4) {
+                        Text(duel.roomCode)
+                            .font(.system(.body, design: .monospaced))
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(8)
+                        
+                        Button(action: {
+                            UIPasteboard.general.string = duel.roomCode
+                            alertTitle = "Success"
+                            alertMessage = "Room code copied to clipboard!"
+                            showAlert = true
+                        }) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .disabled(appState.isShowingLoadingView)
                     }
                     
-                    // Navigation link to Content View
-                    NavigationLink(destination: ContentView().navigationBarBackButtonHidden(true), isActive: $navigateToHome) {
-                        EmptyView()
+                    Spacer()
+                    
+                    // Leave duel button
+                    Button(action: {
+                        appState.startLoading()
+                        leaveDuel()
+                    }) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.title3)
+                            .foregroundColor(.red)
+                            .padding(10)
+                            .background(Color.red.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .disabled(appState.isShowingLoadingView)
+                }
+                .padding(.horizontal)
+                
+                // Top section with player names and scores
+                if let currentUser = currentUser, let opponent = opponent {
+                    HStack {
+                        // Current user - using actual username
+                        VStack {
+                            Text(currentUser.username)
+                                .font(.headline)
+                                .padding(.bottom, 4)
+                            
+                            Text("\(currentUser.score)")
+                                .font(.title)
+                                .fontWeight(.bold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        
+                        ZStack {
+                            GIFView(gifName: "bullet")
+                                .frame(width: 60, height: 60)
+                                .rotationEffect(.degrees(-90))
+                                .scaleEffect(x: 1, y: -1)
+                        }
+                        .padding(5)
+                        
+                        // Opponent
+                        VStack {
+                            Text(opponent.username)
+                                .font(.headline)
+                                .padding(.bottom, 4)
+                            
+                            Text("\(opponent.score)")
+                                .font(.title)
+                                .fontWeight(.bold)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.98, green: 0.7, blue: 0.6),
+                                        Color(red: 0.95, green: 0.95, blue: 0.6),
+                                        Color(red: 0.7, green: 0.98, blue: 0.7),
+                                        Color(red: 0.6, green: 0.8, blue: 0.98)
+                                    ]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ),
+                                lineWidth: 3
+                            )
+                    )
+                    .padding(.horizontal)
+                } else if appState.isLoading {
+                    ProgressView("Loading participants...")
+                        .padding()
+                } else {
+                    Text("Waiting for opponent...")
+                        .foregroundColor(.gray)
+                        .padding()
+                }
+                
+                // Round history section
+                VStack(spacing: 12) {
+                    if appState.isLoading {
+                        ProgressView("Loading round history...")
+                            .padding()
+                    } else if rounds.isEmpty {
+                        Text("No rounds played yet")
+                            .foregroundColor(.gray)
+                            .padding()
+                    } else {
+                        ForEach(rounds, id: \.questionNumber) { round in
+                            // Entire round card with winner's half border
+                            ZStack {
+                                // Background
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.gray.opacity(0.1))
+                                
+                                // Content
+                                VStack(spacing: 8) {
+                                    // Question header
+                                    Text("Question \(round.questionNumber)")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding(.top, 12)
+                                        .padding(.bottom, 4)
+                                    
+                                    // Result indicators
+                                    HStack {
+                                        // User result
+                                        VStack {
+                                            if round.userAnswer != nil {
+                                                Image(systemName: round.userCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                                    .foregroundColor(round.userCorrect ? .green : .red)
+                                                    .font(.title2)
+                                                
+                                                if let time = round.userTime {
+                                                    Text("\(time)s")
+                                                        .font(.caption)
+                                                        .foregroundColor(.gray)
+                                                }
+                                            } else {
+                                                Image(systemName: "questionmark.circle.fill")
+                                                    .foregroundColor(.gray)
+                                                    .font(.title2)
+                                                Text("Waiting")
+                                                    .font(.caption)
+                                                    .foregroundColor(.gray)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        
+                                        // VS divider
+                                        Divider()
+                                            .frame(height: 40)
+                                        
+                                        // Opponent result
+                                        VStack {
+                                            if round.opponentAnswer != nil {
+                                                Image(systemName: round.opponentCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                                    .foregroundColor(round.opponentCorrect ? .green : .red)
+                                                    .font(.title2)
+                                                
+                                                if let time = round.opponentTime {
+                                                    Text("\(time)s")
+                                                        .font(.caption)
+                                                        .foregroundColor(.gray)
+                                                }
+                                            } else {
+                                                Image(systemName: "questionmark.circle.fill")
+                                                    .foregroundColor(.gray)
+                                                    .font(.title2)
+                                                Text("Waiting")
+                                                    .font(.caption)
+                                                    .foregroundColor(.gray)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                    }
+                                    .padding(.horizontal)
+                                }
+                                .zIndex(1) // Content stays above background but below the border
+                                
+                                // Fading border for winner
+                                fadingBorderForWinner(round: round)
+                                    .zIndex(2) // Makes sure border is above everything
+                            }
+                            .padding(.horizontal)
+                        }
                     }
                 }
+                
+                Spacer()
             }
         }
         .background(Color.white)
@@ -382,25 +367,34 @@ struct DuelDetailView: View {
             )
         }
         .refreshable {
-            loadParticipants()
-            loadAnswers()
-            checkTurn()
+            loadData()
+        }
+        // Disable refreshing during loading
+        .disabled(appState.isShowingLoadingView)
+        
+        // Navigation link to Content View with improved loading handling
+        NavigationLink(destination: ContentView()
+            .navigationBarBackButtonHidden(true)
+            .onAppear {
+                // Reset navigation state when destination appears
+                appState.stopNavigating()
+            },
+            isActive: $navigateToHome
+        ) {
+            EmptyView()
+        }
+        .hidden()
+        .onAppear {
+            // Load initial data when view appears
+            appState.startLoading()
+            loadData()
         }
     }
     
-    private func loadInitialData() {
-        // Simulate initial setup and load data
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            loadParticipants()
-            loadAnswers()
-            checkTurn()
-            
-            // Set view as loaded after a short delay to ensure data is processed
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                showLoadingScreen = false
-                isViewLoaded = true
-            }
-        }
+    private func loadData() {
+        loadParticipants()
+        loadAnswers()
+        checkTurn()
     }
     
     // Fading border for winner
@@ -530,12 +524,8 @@ struct DuelDetailView: View {
     }
     
     private func loadParticipants() {
-        isLoading = true
-        
         dbManager.getDuelParticipants(duelId: duel.id) { (fetchedParticipants: [User]?, error: Error?) in
             DispatchQueue.main.async {
-                isLoading = false
-                
                 if let error = error {
                     alertTitle = "Error"
                     alertMessage = "Failed to load participants: \(error.localizedDescription)"
@@ -549,6 +539,8 @@ struct DuelDetailView: View {
                         opponent = fetchedParticipants.first(where: { $0.username != currentUsername })
                     }
                 }
+                
+                // Continue loading other data, don't stop loading yet
             }
         }
     }
@@ -568,16 +560,15 @@ struct DuelDetailView: View {
     }
     
     private func loadAnswers() {
-        isLoadingAnswers = true
-        
         guard let userId = dbManager.currentUserId else {
-            isLoadingAnswers = false
+            appState.stopLoading()
             return
         }
         
         dbManager.getDuelAnswers(duelId: duel.id) { fetchedAnswers, error in
             DispatchQueue.main.async {
-                isLoadingAnswers = false
+                // Stop loading now that we have all data
+                appState.stopLoading()
                 
                 if let error = error {
                     alertTitle = "Error"
@@ -611,13 +602,24 @@ struct DuelDetailView: View {
     }
     
     private func leaveDuel() {
-        guard let userId = dbManager.currentUserId else { return }
+        guard let userId = dbManager.currentUserId else {
+            appState.stopLoading()
+            return
+        }
         
         dbManager.leaveDuel(userId: userId, duelId: duel.id) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    navigateToHome = true
+                    // Switch to navigation loading before navigating
+                    appState.stopLoading()
+                    appState.startNavigating()
+                    
+                    // Slight delay before actual navigation
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        navigateToHome = true
+                    }
                 } else {
+                    appState.stopLoading()
                     alertTitle = "Error"
                     alertMessage = "Failed to leave duel: \(error?.localizedDescription ?? "Unknown error")"
                     showAlert = true
