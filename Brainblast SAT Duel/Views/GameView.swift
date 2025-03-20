@@ -63,7 +63,7 @@ struct GameView: View {
     
     var body: some View {
         ZStack {
-            // Main game content
+            Color.white.ignoresSafeArea()
             VStack(spacing: 0) {
                 // Timer bar at the top
                 ZStack(alignment: .leading) {
@@ -88,9 +88,9 @@ struct GameView: View {
                     VStack {
                         Text("Error loading question")
                             .font(.headline)
-                            .foregroundColor(.red)
+                            .foregroundColor(.black) // Changed from red to black
                         Text(error)
-                            .foregroundColor(.red)
+                            .foregroundColor(.black) // Changed from red to black
                         Button("Return to Duel") {
                             appState.startNavigating()
                             // Slight delay before actual navigation
@@ -100,7 +100,7 @@ struct GameView: View {
                         }
                         .padding()
                         .background(Color.blue)
-                        .foregroundColor(.white)
+                        .foregroundColor(.black) // Changed from white to black
                         .cornerRadius(8)
                         .disabled(appState.isShowingLoadingView)
                     }
@@ -109,6 +109,7 @@ struct GameView: View {
                     // Game UI
                     Text(question)
                         .font(.title)
+                        .foregroundColor(.black) // Added to ensure black text
                         .padding()
                         .multilineTextAlignment(.center)
                     
@@ -126,15 +127,11 @@ struct GameView: View {
                                 }
                             }) {
                                 Text(options[index])
+                                    .foregroundColor(.black) // Always black text
                                     .frame(maxWidth: .infinity)
                                     .padding()
                                     .background(
                                         getButtonBackground(for: options[index])
-                                    )
-                                    .foregroundColor(
-                                        selectedAnswer == options[index]
-                                        ? Color.white
-                                        : Color.primary
                                     )
                                     .cornerRadius(10)
                             }
@@ -185,9 +182,9 @@ struct GameView: View {
                 Color.gray.opacity(0.2)
             }
         } else {
-            // Showing results
+            // Showing results ONLY after user has selected an answer
             if option == correctOption {
-                // Correct answer - rainbow gradient
+                // Correct answer
                 LinearGradient(
                     gradient: Gradient(colors: [
                         Color(red: 0.98, green: 0.7, blue: 0.6),
@@ -197,9 +194,9 @@ struct GameView: View {
                     ]),
                     startPoint: .leading,
                     endPoint: .trailing
-                )
+                ) // <- This closing parenthesis was missing
             } else if selectedAnswer == option && option != correctOption {
-                // Incorrect selected answer - red
+                // Incorrect selected answer
                 Color.red.opacity(0.7)
             } else {
                 // Other options when showing results

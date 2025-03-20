@@ -1,23 +1,5 @@
 import SwiftUI
 
-struct Answer {
-    let userId: String
-    let questionNumber: Int
-    let timeTaken: Int
-    let isCorrect: Bool
-}
-
-struct Round {
-    let questionNumber: Int
-    let userAnswer: Answer?
-    let opponentAnswer: Answer?
-    
-    var userCorrect: Bool { userAnswer?.isCorrect ?? false }
-    var opponentCorrect: Bool { opponentAnswer?.isCorrect ?? false }
-    var userTime: Int? { userAnswer?.timeTaken }
-    var opponentTime: Int? { opponentAnswer?.timeTaken }
-}
-
 struct RoundedLeftRectangle: Shape {
     var radius: CGFloat
     
@@ -123,6 +105,10 @@ struct DuelDetailView: View {
     @State private var rounds: [Round] = []
     @State private var isUsersTurn: Bool = false
     @State private var gameOver: Bool = false
+    @State private var navigateToGameView: Bool = false
+    
+    // Timer for polling turn status
+    @State private var timer: Timer? = nil
     
     // For winner determination
     private enum RoundWinner {
@@ -136,6 +122,29 @@ struct DuelDetailView: View {
         ZStack {
             duelActiveView
             
+            // Navigation link to GameView when it's user's turn
+            NavigationLink(
+                destination: Group {
+                    if let userId = dbManager.currentUserId {
+                        GameView(duel: duel, userId: userId)
+                    } else {
+                        // Fallback if somehow userId is missing
+                        Text("Unable to start game: User ID not found")
+                            .foregroundColor(.black)
+                            .padding()
+                            .onAppear {
+                                // Return back to duel detail after a delay
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    navigateToGameView = false
+                                }
+                            }
+                    }
+                },
+                isActive: $navigateToGameView
+            ) {
+                EmptyView()
+            }
+            
             // Navigation link to DuelResultView when game is over
             NavigationLink(
                 destination: Group {
@@ -145,7 +154,8 @@ struct DuelDetailView: View {
                             isWinner: currentUser.score >= 3,
                             opponentName: opponent.username,
                             userScore: currentUser.score,
-                            opponentScore: opponent.score
+                            opponentScore: opponent.score,
+                            duelId: duel.id
                         )
                     } else {
                         EmptyView()
@@ -162,9 +172,9 @@ struct DuelDetailView: View {
         .navigationBarHidden(true)
         .alert(isPresented: $showAlert) {
             Alert(
-                title: Text(alertTitle),
-                message: Text(alertMessage),
-                dismissButton: .default(Text("OK"))
+                title: Text(alertTitle).foregroundColor(.black),
+                message: Text(alertMessage).foregroundColor(.black),
+                dismissButton: .default(Text("OK").foregroundColor(.black))
             )
         }
         // Navigation link to Content View with improved loading handling
@@ -183,6 +193,13 @@ struct DuelDetailView: View {
             // Load initial data when view appears
             appState.startLoading()
             loadData()
+            
+            // Start polling for turn updates
+            startTurnPolling()
+        }
+        .onDisappear {
+            // Cancel the timer when view disappears
+            stopTurnPolling()
         }
     }
     
@@ -233,13 +250,15 @@ struct DuelDetailView: View {
                     HStack {
                         // Current user - using actual username
                         VStack {
-                            Text(currentUser.username)
+                            Text("You")
                                 .font(.headline)
+                                .foregroundColor(.black)
                                 .padding(.bottom, 4)
                             
                             Text("\(currentUser.score)")
                                 .font(.title)
                                 .fontWeight(.bold)
+                                .foregroundColor(.black)
                         }
                         .frame(maxWidth: .infinity)
                         
@@ -253,13 +272,15 @@ struct DuelDetailView: View {
                         
                         // Opponent
                         VStack {
-                            Text(opponent.username)
+                            Text(opponent.username.prefix(1).uppercased() + opponent.username.dropFirst())
                                 .font(.headline)
+                                .foregroundColor(.black)
                                 .padding(.bottom, 4)
                             
                             Text("\(opponent.score)")
                                 .font(.title)
                                 .fontWeight(.bold)
+                                .foregroundColor(.black)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -283,10 +304,11 @@ struct DuelDetailView: View {
                     .padding(.horizontal)
                 } else if appState.isLoading {
                     ProgressView("Loading participants...")
+                        .foregroundColor(.black)
                         .padding()
                 } else {
                     Text("Waiting for opponent...")
-                        .foregroundColor(.gray)
+                        .foregroundColor(.black)
                         .padding()
                 }
                 
@@ -294,10 +316,11 @@ struct DuelDetailView: View {
                 VStack(spacing: 12) {
                     if appState.isLoading {
                         ProgressView("Loading round history...")
+                            .foregroundColor(.black)
                             .padding()
                     } else if rounds.isEmpty {
                         Text("No rounds played yet")
-                            .foregroundColor(.gray)
+                            .foregroundColor(.black)
                             .padding()
                     } else {
                         ForEach(rounds, id: \.questionNumber) { round in
@@ -305,6 +328,7 @@ struct DuelDetailView: View {
                             Text("Question \(round.questionNumber)")
                                 .font(.subheadline)
                                 .fontWeight(.medium)
+                                .foregroundColor(.black)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.horizontal)
                                 .padding(.top, 4)
@@ -392,98 +416,200 @@ struct DuelDetailView: View {
         .disabled(appState.isShowingLoadingView)
     }
     
+    // Function to start polling for turn updates
+    private func startTurnPolling() {
+        // Cancel any existing timer
+        stopTurnPolling()
+        
+        // Create a new timer that polls every 3 seconds
+        timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            checkTurnWithNavigation()
+        }
+    }
+    
+    // Function to stop polling
+    private func stopTurnPolling() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    // Modified check turn function that navigates to GameView if it's user's turn
+    private func checkTurnWithNavigation() {
+        guard let userId = dbManager.currentUserId else {
+            return
+        }
+        
+        // First check if the game is over
+        dbManager.getDuelParticipants(duelId: duel.id) { (fetchedParticipants: [User]?, error: Error?) in
+            DispatchQueue.main.async {
+                if let fetchedParticipants = fetchedParticipants {
+                    // Check if anyone has 3 or more points
+                    let isGameOver = fetchedParticipants.contains { $0.score >= 3 }
+                    
+                    if isGameOver {
+                        // Game is over, update gameOver state and don't check turn
+                        if !gameOver {
+                            gameOver = true
+                        }
+                    } else {
+                        // Only check turn if game is not over
+                        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+                            if let isTurn = isTurn {
+                                DispatchQueue.main.async {
+                                    // Only navigate if it wasn't their turn before and now it is
+                                    if isTurn && !isUsersTurn && !gameOver {
+                                        navigateToGameView = true
+                                    }
+                                    
+                                    // Update the state
+                                    isUsersTurn = isTurn
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private func loadData() {
-        loadParticipants()
-        loadAnswers()
-        checkTurn()
+        // First check if it's user's turn - if so, we'll navigate directly to GameView
+        guard let userId = dbManager.currentUserId else {
+            loadParticipants()
+            loadAnswers()
+            appState.stopLoading()
+            return
+        }
+        
+        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+            DispatchQueue.main.async {
+                isUsersTurn = isTurn ?? false
+                
+                // If it's user's turn immediately, navigate to game view
+                if isTurn == true && !gameOver {
+                    appState.stopLoading()
+                    navigateToGameView = true
+                } else {
+                    // Otherwise load the rest of the data
+                    loadParticipants()
+                    loadAnswers()
+                }
+            }
+        }
     }
     
     @ViewBuilder
     private func winnerBackgroundForRound(round: Round) -> some View {
-        let winner = determineWinner(round: round)
-        
         GeometryReader { geometry in
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.gray.opacity(0.1))
             
-            if winner == .user {
-                // User side winner - left side rainbow fill
-                HStack(spacing: 0) {
-                    // Left half with rainbow gradient
-                    RoundedLeftRectangle(radius: 12)
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color(red: 0.98, green: 0.7, blue: 0.6),
-                                    Color(red: 0.95, green: 0.95, blue: 0.6),
-                                    Color(red: 0.7, green: 0.98, blue: 0.7),
-                                    Color(red: 0.6, green: 0.8, blue: 0.98)
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
+            if let userId = dbManager.currentUserId,
+               round.userAnswer != nil && round.opponentAnswer != nil {
+                
+                // Both players have answered - determine winner
+                if round.userCorrect && !round.opponentCorrect {
+                    // User won
+                    HStack(spacing: 0) {
+                        // Left half with rainbow gradient
+                        RoundedLeftRectangle(radius: 12)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.98, green: 0.7, blue: 0.6),
+                                        Color(red: 0.95, green: 0.95, blue: 0.6),
+                                        Color(red: 0.7, green: 0.98, blue: 0.7),
+                                        Color(red: 0.6, green: 0.8, blue: 0.98)
+                                    ]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
                             )
-                        )
-                        .frame(width: geometry.size.width * 0.5)
-                    
-                    // Right half without gradient
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.1))
-                        .frame(width: geometry.size.width * 0.5)
-                }
-            } else if winner == .opponent {
-                // Opponent side winner - right side rainbow fill
-                HStack(spacing: 0) {
-                    // Left half without gradient
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.1))
-                        .frame(width: geometry.size.width * 0.5)
-                    
-                    // Right half with rainbow gradient
-                    RoundedRightRectangle(radius: 12)
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color(red: 0.98, green: 0.7, blue: 0.6),
-                                    Color(red: 0.95, green: 0.95, blue: 0.6),
-                                    Color(red: 0.7, green: 0.98, blue: 0.7),
-                                    Color(red: 0.6, green: 0.8, blue: 0.98)
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
+                            .frame(width: geometry.size.width * 0.5)
+                        
+                        // Right half without gradient
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.1))
+                            .frame(width: geometry.size.width * 0.5)
+                    }
+                } else if !round.userCorrect && round.opponentCorrect {
+                    // Opponent won
+                    HStack(spacing: 0) {
+                        // Left half without gradient
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.1))
+                            .frame(width: geometry.size.width * 0.5)
+                        
+                        // Right half with rainbow gradient
+                        RoundedRightRectangle(radius: 12)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.98, green: 0.7, blue: 0.6),
+                                        Color(red: 0.95, green: 0.95, blue: 0.6),
+                                        Color(red: 0.7, green: 0.98, blue: 0.7),
+                                        Color(red: 0.6, green: 0.8, blue: 0.98)
+                                    ]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
                             )
-                        )
-                        .frame(width: geometry.size.width * 0.5)
+                            .frame(width: geometry.size.width * 0.5)
+                    }
+                } else if round.userCorrect && round.opponentCorrect {
+                    // Both correct - compare times
+                    if let userTime = round.userTime, let opponentTime = round.opponentTime {
+                        if userTime < opponentTime {
+                            // User faster
+                            HStack(spacing: 0) {
+                                RoundedLeftRectangle(radius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color(red: 0.98, green: 0.7, blue: 0.6),
+                                                Color(red: 0.95, green: 0.95, blue: 0.6),
+                                                Color(red: 0.7, green: 0.98, blue: 0.7),
+                                                Color(red: 0.6, green: 0.8, blue: 0.98)
+                                            ]),
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: geometry.size.width * 0.5)
+                                
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.1))
+                                    .frame(width: geometry.size.width * 0.5)
+                            }
+                        } else if opponentTime < userTime {
+                            // Opponent faster
+                            HStack(spacing: 0) {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.1))
+                                    .frame(width: geometry.size.width * 0.5)
+                                
+                                RoundedRightRectangle(radius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color(red: 0.98, green: 0.7, blue: 0.6),
+                                                Color(red: 0.95, green: 0.95, blue: 0.6),
+                                                Color(red: 0.7, green: 0.98, blue: 0.7),
+                                                Color(red: 0.6, green: 0.8, blue: 0.98)
+                                            ]),
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: geometry.size.width * 0.5)
+                            }
+                        }
+                        // If times are equal, no highlight (tie)
+                    }
                 }
+                // If both incorrect, no highlight
             }
         }
-    }
-    
-    // Function to determine winner of a round
-    private func determineWinner(round: Round) -> RoundWinner {
-        // If either player hasn't answered yet, the round is incomplete
-        if round.userAnswer == nil || round.opponentAnswer == nil {
-            return .incomplete
-        }
-        
-        // If one player is correct and the other is incorrect, the correct player wins
-        if round.userCorrect && !round.opponentCorrect {
-            return .user
-        } else if !round.userCorrect && round.opponentCorrect {
-            return .opponent
-        }
-        
-        // If both are correct or both are incorrect, faster time wins
-        if let userTime = round.userTime, let opponentTime = round.opponentTime {
-            if userTime < opponentTime {
-                return .user
-            } else if opponentTime < userTime {
-                return .opponent
-            } else {
-                return .tie // Same time
-            }
-        }
-        
-        return .incomplete // Should not reach here if both have answered
     }
     
     private func loadParticipants() {
@@ -518,73 +644,113 @@ struct DuelDetailView: View {
         }
     }
     
-    private func checkTurn() {
-        guard let userId = dbManager.currentUserId else {
-            return
-        }
-        
-        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
-            if let isTurn = isTurn {
-                DispatchQueue.main.async {
-                    isUsersTurn = isTurn
-                }
-            }
-        }
-    }
-    
     private func loadAnswers() {
         guard let userId = dbManager.currentUserId else {
             appState.stopLoading()
             return
         }
         
-        dbManager.getDuelAnswers(duelId: duel.id) { fetchedAnswers, error in
+        dbManager.getDuelRounds(duelId: duel.id) { roundsData, error in
             DispatchQueue.main.async {
                 // Stop loading now that we have all data
                 appState.stopLoading()
                 
                 if let error = error {
                     alertTitle = "Error"
-                    alertMessage = "Failed to load answers: \(error.localizedDescription)"
+                    alertMessage = "Failed to load rounds: \(error.localizedDescription)"
                     showAlert = true
-                } else if let fetchedAnswers = fetchedAnswers {
-                    answers = fetchedAnswers
-                    processAnswersIntoRounds(answers: fetchedAnswers, userId: userId)
+                } else if let roundsData = roundsData {
+                    // Process the rounds data
+                    var processedRounds: [Round] = []
+                    
+                    for roundData in roundsData {
+                        // Create a new Round with just the question number
+                        let round = Round(questionNumber: roundData.roundNumber)
+                        
+                        // Add answers to the round
+                        for answer in roundData.userAnswers {
+                            // Set isUserAnswer based on whether this is the current user's answer
+                            let isUserAnswer = answer.userId == userId
+                            
+                            // Create a new Answer with the isUserAnswer flag
+                            let newAnswer = Answer(
+                                userId: answer.userId,
+                                questionNumber: answer.questionNumber,
+                                timeTaken: answer.timeTaken,
+                                isCorrect: answer.isCorrect,
+                                isUserAnswer: isUserAnswer
+                            )
+                            
+                            // Add the answer to the round
+                            round.addAnswer(newAnswer)
+                        }
+                        
+                        processedRounds.append(round)
+                    }
+                    
+                    // Sort by question number to ensure correct order
+                    self.rounds = processedRounds.sorted(by: { $0.questionNumber < $1.questionNumber })
                 }
             }
         }
     }
     
     private func processAnswersIntoRounds(answers: [Answer], userId: String) {
-        // Step 1: First separate user answers and opponent answers
-        let userAnswers = answers.filter { $0.userId == userId }
-        let opponentAnswers = answers.filter { $0.userId != userId }
+        // Create a mapping of userIds to their sequence of answers
+        var userAnswersByQuestion: [String: [Int: Answer]] = [:]
         
-        // Sort answers
-        let sortedOpponentAnswers = opponentAnswers.sorted(by: { $0.questionNumber < $1.questionNumber })
-        let sortedUserAnswers = userAnswers.sorted(by: { $0.questionNumber < $1.questionNumber })
-        
-        // Step 3: Create rounds
-        var allRounds: [Round] = []
-        let maxQuestionNumber = max(sortedUserAnswers.count, sortedOpponentAnswers.count)
-        
-        if maxQuestionNumber > 0 {
-            for questionNum in 1...maxQuestionNumber {
-                // Get user answer from our corrected mapping
-                let userAnswer = sortedUserAnswers.first { $0.questionNumber == questionNum }
-                
-                // Get opponent answer the normal way - they're correctly ordered
-                let opponentAnswer = sortedOpponentAnswers.first { $0.questionNumber == questionNum }
-                
-                allRounds.append(Round(
-                    questionNumber: questionNum,
-                    userAnswer: userAnswer,
-                    opponentAnswer: opponentAnswer
-                ))
+        // Group all answers by userId and questionNumber
+        for answer in answers {
+            if userAnswersByQuestion[answer.userId] == nil {
+                userAnswersByQuestion[answer.userId] = [:]
             }
+            userAnswersByQuestion[answer.userId]?[answer.questionNumber] = answer
         }
         
-        self.rounds = allRounds
+        // Find the opponent's userId
+        let opponentId = userAnswersByQuestion.keys.first(where: { $0 != userId }) ?? ""
+        
+        // Get the maximum question number
+        let userMaxQuestion = userAnswersByQuestion[userId]?.keys.max() ?? 0
+        let opponentMaxQuestion = userAnswersByQuestion[opponentId]?.keys.max() ?? 0
+        let maxQuestionNumber = max(userMaxQuestion, opponentMaxQuestion)
+        
+        // Create rounds in order
+        var orderedRounds: [Round] = []
+        for questionNum in 1...maxQuestionNumber {
+            let round = Round(questionNumber: questionNum)
+            
+            // Add user answer if it exists
+            if let userAnswer = userAnswersByQuestion[userId]?[questionNum] {
+                // Create a new Answer with isUserAnswer=true
+                let newUserAnswer = Answer(
+                    userId: userAnswer.userId,
+                    questionNumber: userAnswer.questionNumber,
+                    timeTaken: userAnswer.timeTaken,
+                    isCorrect: userAnswer.isCorrect,
+                    isUserAnswer: true
+                )
+                round.addAnswer(newUserAnswer)
+            }
+            
+            // Add opponent answer if it exists
+            if let opponentAnswer = userAnswersByQuestion[opponentId]?[questionNum] {
+                // Create a new Answer with isUserAnswer=false
+                let newOpponentAnswer = Answer(
+                    userId: opponentAnswer.userId,
+                    questionNumber: opponentAnswer.questionNumber,
+                    timeTaken: opponentAnswer.timeTaken,
+                    isCorrect: opponentAnswer.isCorrect,
+                    isUserAnswer: false
+                )
+                round.addAnswer(newOpponentAnswer)
+            }
+            
+            orderedRounds.append(round)
+        }
+        
+        // Apply the sorted rounds
+        self.rounds = orderedRounds
     }
 
     private func leaveDuel() {

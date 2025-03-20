@@ -9,6 +9,12 @@ struct DuelResultView: View {
     let opponentName: String
     let userScore: Int
     let opponentScore: Int
+    let duelId: String // Added duelId parameter
+    
+    // State to track if the player has been removed from the duel
+    @State private var hasBeenRemoved: Bool = false
+    @State private var showRemovalError: Bool = false
+    @State private var errorMessage: String = ""
     
     var body: some View {
         ZStack {
@@ -70,6 +76,7 @@ struct DuelResultView: View {
                     Text("Final Score")
                         .font(.title2)
                         .fontWeight(.bold)
+                        .foregroundColor(.black)
                         .padding(.top)
                     
                     HStack(spacing: 40) {
@@ -77,24 +84,26 @@ struct DuelResultView: View {
                         VStack {
                             Text("You")
                                 .font(.headline)
+                                .foregroundColor(.black)
                             Text("\(userScore)")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
-                                .foregroundColor(isWinner ? .green : .primary)
+                                .foregroundColor(.black)
                         }
                         
                         Text("vs")
                             .font(.headline)
-                            .foregroundColor(.gray)
+                            .foregroundColor(.black)
                         
                         // Opponent score
                         VStack {
                             Text(opponentName.prefix(1).uppercased() + opponentName.dropFirst())
                                 .font(.headline)
+                                .foregroundColor(.black)
                             Text("\(opponentScore)")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
-                                .foregroundColor(isWinner ? .primary : .green)
+                                .foregroundColor(.black)
                         }
                     }
                     .padding()
@@ -115,6 +124,13 @@ struct DuelResultView: View {
                             )
                     )
                     .padding(.horizontal)
+                    
+                    // Error message if removal fails
+                    if showRemovalError {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .padding(.top)
+                    }
                 }
                 
                 Spacer()
@@ -140,6 +156,37 @@ struct DuelResultView: View {
             // Make sure we reset any loading state when this view appears
             appState.stopLoading()
             appState.stopNavigating()
+            
+            // Remove player from the duel when view appears
+            removePlayerFromDuel()
+        }
+        .alert(isPresented: $showRemovalError) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+    
+    // Function to remove player from duel
+    private func removePlayerFromDuel() {
+        // Only attempt to remove if not already removed
+        guard !hasBeenRemoved, let userId = dbManager.currentUserId else {
+            return
+        }
+        
+        dbManager.leaveDuel(userId: userId, duelId: duelId) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    hasBeenRemoved = true
+                    print("Successfully removed from duel")
+                } else {
+                    showRemovalError = true
+                    errorMessage = "Failed to leave duel: \(error?.localizedDescription ?? "Unknown error")"
+                    print("Error removing from duel: \(error?.localizedDescription ?? "Unknown error")")
+                }
+            }
         }
     }
 }
@@ -154,7 +201,8 @@ struct DuelResultView_Previews: PreviewProvider {
             isWinner: true,
             opponentName: "Opponent",
             userScore: 3,
-            opponentScore: 1
+            opponentScore: 1,
+            duelId: "test-duel-id"
         )
         .environmentObject(AppState())
         .environmentObject(PostgresDBManager())
