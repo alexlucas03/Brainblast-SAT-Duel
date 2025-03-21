@@ -102,7 +102,12 @@ struct DuelItemView: View {
             .background(
                 // Use a conditional to pick the right view instead of a ternary on just the fill
                 Group {
-                    if viewModel.isPlayersTurn {
+                    if viewModel.isComplete {
+                        // Gray background for completed duels
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.gray.opacity(0.1))
+                    } else if viewModel.isPlayersTurn {
+                        // Rainbow background for player's turn
                         RoundedRectangle(cornerRadius: 10)
                             .fill(
                                 LinearGradient(
@@ -117,16 +122,18 @@ struct DuelItemView: View {
                                 )
                             )
                     } else {
+                        // White background for waiting duels
                         RoundedRectangle(cornerRadius: 10)
                             .fill(Color.white)
                     }
                 }
             )
+            .opacity(viewModel.isComplete ? 0.7 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())
         .listRowBackground(Color.white)
         .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-        .disabled(appState.isShowingLoadingView)
+        .disabled(appState.isShowingLoadingView || viewModel.isComplete)
     }
     
     private var duelInfoView: some View {
@@ -152,16 +159,6 @@ struct DuelItemView: View {
                 .font(.system(.body, design: .monospaced))
                 .fontWeight(.bold)
                 .foregroundColor(.black)
-            
-            Button(action: {
-                UIPasteboard.general.string = viewModel.duel.roomCode
-                // Handle feedback in parent view
-            }) {
-                Image(systemName: "doc.on.doc")
-                    .font(.caption)
-                    .foregroundColor(.blue)
-            }
-            .disabled(appState.isShowingLoadingView)
         }
     }
 }
@@ -189,9 +186,9 @@ struct DuelViewModel: Identifiable {
     var statusText: String {
         if isComplete {
             if userScore > opponentScore {
-                return "You beat \(opponentName)"
+                return "You beat \(opponentName.prefix(1).capitalized + opponentName.dropFirst())"
             } else if opponentScore > userScore {
-                return "\(opponentName) beat You"
+                return "\(opponentName.prefix(1).capitalized + opponentName.dropFirst()) beat You"
             } else {
                 return "Tied with \(opponentName)"
             }
