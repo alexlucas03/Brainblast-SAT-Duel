@@ -674,7 +674,6 @@ class PostgresDBManager: ObservableObject {
                 let connection = try self.getConnection()
                 defer { connection.close() }
 
-                // Insert answer into database (this part stays the same)
                 let query = "INSERT INTO answers (user_id, duel_id, time_taken, is_correct) VALUES ($1, $2, $3, $4);"
                 let statement = try connection.prepareStatement(text: query)
                 defer { statement.close() }
@@ -691,6 +690,58 @@ class PostgresDBManager: ObservableObject {
                 print("Error recording answer: \(error)")
                 DispatchQueue.main.async {
                     completion(false, error)
+                }
+            }
+        }
+    }
+    
+    func getDuelAnswers(duelId: String, completion: @escaping ([Answer]?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+
+                // Query to get answers for this duel, ordered by id to get chronological order
+                let query = """
+                    SELECT user_id, time_taken, is_correct, 
+                           ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY id) AS question_number
+                    FROM answers
+                    WHERE duel_id = $1
+                    ORDER BY id;
+                """
+                
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+
+                let cursor = try statement.execute(parameterValues: [duelId])
+                defer { cursor.close() }
+
+                var answers: [Answer] = []
+
+                while let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    
+                    let userId = try row.columns[0].string()
+                    let timeTaken = try row.columns[1].int()
+                    let isCorrect = try row.columns[2].bool()
+                    let questionNumber = try row.columns[3].int()
+                    
+                    answers.append(Answer(
+                        userId: userId,
+                        questionNumber: questionNumber,
+                        timeTaken: timeTaken,
+                        isCorrect: isCorrect
+                    ))
+                }
+                print(answers)
+
+                DispatchQueue.main.async {
+                    completion(answers, nil)
+                }
+            } catch {
+                print("Error getting duel answers: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
                 }
             }
         }
@@ -896,205 +947,6 @@ class PostgresDBManager: ObservableObject {
             print("Winner found: \(winnerId) in duel \(duelId)")
         }
     }
-    
-    func determineRoundWinner(duelId: String, roundNumber: Int, completion: @escaping (String?, Error?) -> Void) {
-        DispatchQueue.global(qos: .background).async {
-            do {
-                let connection = try self.getConnection()
-                defer { connection.close() }
-                
-                // Get all answers for the specific round/question number
-                let query = """
-                    SELECT a.user_id, a.time_taken, a.is_correct, u.username
-                    FROM answers a
-                    JOIN users u ON a.user_id = u.id
-                    WHERE a.duel_id = $1
-                    ORDER BY a.id
-                """
-                
-                let statement = try connection.prepareStatement(text: query)
-                defer { statement.close() }
-                
-                let cursor = try statement.execute(parameterValues: [duelId])
-                defer { cursor.close() }
-                
-                // Parse the answers
-                var answers: [(userId: String, timeTaken: Int, isCorrect: Bool, username: String)] = []
-                while let rowResult = try cursor.next() {
-                    let row = try rowResult.get()
-                    let userId = try row.columns[0].string()
-                    let timeTaken = try row.columns[1].int()
-                    let isCorrect = try row.columns[2].bool()
-                    let username = try row.columns[3].string()
-                    
-                    answers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect, username: username))
-                }
-                
-                // Process into rounds
-                var rounds: [Int: [(userId: String, timeTaken: Int, isCorrect: Bool, username: String)]] = [:]
-                var userAnswerCounts: [String: Int] = [:]
-                
-                for answer in answers {
-                    // Increment this user's answer count
-                    userAnswerCounts[answer.userId, default: 0] += 1
-                    
-                    // The question number is the user's answer count
-                    let questionNumber = userAnswerCounts[answer.userId, default: 0]
-                    
-                    // Add to the appropriate round
-                    if rounds[questionNumber] == nil {
-                        rounds[questionNumber] = []
-                    }
-                    rounds[questionNumber]?.append(answer)
-                }
-                
-                // Find the specific round
-                if let roundAnswers = rounds[roundNumber], roundAnswers.count == 2 {
-                    let answer1 = roundAnswers[0]
-                    let answer2 = roundAnswers[1]
-                    
-                    // Determine winner
-                    var winnerId: String? = nil
-                    
-                    if answer1.isCorrect && answer2.isCorrect {
-                        // Both correct, faster wins
-                        winnerId = answer1.timeTaken < answer2.timeTaken ? answer1.userId : answer2.userId
-                    } else if answer1.isCorrect && !answer2.isCorrect {
-                        // First player correct
-                        winnerId = answer1.userId
-                    } else if !answer1.isCorrect && answer2.isCorrect {
-                        // Second player correct
-                        winnerId = answer2.userId
-                    }
-                    // If both are incorrect, winner remains nil
-                    
-                    DispatchQueue.main.async {
-                        completion(winnerId, nil)
-                    }
-                } else {
-                    // Not enough answers for this round yet
-                    DispatchQueue.main.async {
-                        completion(nil, nil)
-                    }
-                }
-            } catch {
-                print("Error determining round winner: \(error)")
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
-            }
-        }
-    }
-
-    // Add a method to get round data with winner information
-    func getDuelRounds(duelId: String, completion: @escaping ([(roundNumber: Int, userAnswers: [Answer], winnerId: String?)]?, Error?) -> Void) {
-        DispatchQueue.global(qos: .background).async {
-            do {
-                let connection = try self.getConnection()
-                defer { connection.close() }
-                
-                // Get all answers for the duel
-                let query = """
-                    SELECT a.user_id, a.time_taken, a.is_correct, a.id, u.username
-                    FROM answers a
-                    JOIN users u ON CAST(a.user_id AS INTEGER) = u.id
-                    WHERE a.duel_id = $1
-                    ORDER BY a.id
-                """
-                
-                let statement = try connection.prepareStatement(text: query)
-                defer { statement.close() }
-                
-                let cursor = try statement.execute(parameterValues: [duelId])
-                defer { cursor.close() }
-                
-                // Parse the answers
-                var answers: [(userId: String, timeTaken: Int, isCorrect: Bool, id: Int, username: String)] = []
-                while let rowResult = try cursor.next() {
-                    let row = try rowResult.get()
-                    let userId = try row.columns[0].string()
-                    let timeTaken = try row.columns[1].int()
-                    let isCorrect = try row.columns[2].bool()
-                    let id = try row.columns[3].int()
-                    let username = try row.columns[4].string()
-                    
-                    answers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect, id: id, username: username))
-                }
-                
-                // Process into rounds based on user's answer count
-                var userAnswerCounts: [String: Int] = [:]
-                var roundsMap: [Int: [Answer]] = [:]
-                var roundToWinner: [Int: String?] = [:]
-                
-                for answer in answers {
-                    // Increment this user's answer count
-                    userAnswerCounts[answer.userId, default: 0] += 1
-                    
-                    // The question number is the user's answer count
-                    let questionNumber = userAnswerCounts[answer.userId, default: 0]
-                    
-                    // Create Answer object
-                    let answerObj = Answer(
-                        userId: answer.userId,
-                        questionNumber: questionNumber,
-                        timeTaken: answer.timeTaken,
-                        isCorrect: answer.isCorrect
-                    )
-                    
-                    // Add to the round collection
-                    if roundsMap[questionNumber] == nil {
-                        roundsMap[questionNumber] = []
-                    }
-                    roundsMap[questionNumber]?.append(answerObj)
-                    
-                    // Determine winner for completed rounds
-                    if let answers = roundsMap[questionNumber], answers.count == 2 {
-                        let answer1 = answers[0]
-                        let answer2 = answers[1]
-                        
-                        var winnerId: String? = nil
-                        
-                        if answer1.isCorrect && answer2.isCorrect {
-                            // Both correct, faster wins
-                            winnerId = answer1.timeTaken < answer2.timeTaken ? answer1.userId : answer2.userId
-                        } else if answer1.isCorrect && !answer2.isCorrect {
-                            // First player correct
-                            winnerId = answer1.userId
-                        } else if !answer1.isCorrect && answer2.isCorrect {
-                            // Second player correct
-                            winnerId = answer2.userId
-                        }
-                        // If both are incorrect, winner remains nil
-                        
-                        roundToWinner[questionNumber] = winnerId
-                    }
-                }
-                
-                // Convert to array format expected by the completion handler
-                var result: [(roundNumber: Int, userAnswers: [Answer], winnerId: String?)] = []
-                
-                for (questionNumber, answers) in roundsMap {
-                    result.append((
-                        roundNumber: questionNumber,
-                        userAnswers: answers,
-                        winnerId: roundToWinner[questionNumber] ?? nil
-                    ))
-                }
-                
-                // Sort by question number
-                let sortedResult = result.sorted(by: { $0.roundNumber < $1.roundNumber })
-                
-                DispatchQueue.main.async {
-                    completion(sortedResult, nil)
-                }
-            } catch {
-                print("Error getting duel rounds: \(error)")
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
-            }
-        }
-    }
 
     private func completeDuel(duelId: String, connection: Connection) throws {
         let dateFormatter = DateFormatter()
@@ -1196,103 +1048,6 @@ class PostgresDBManager: ObservableObject {
                 }
             }
         }
-    }
-    
-    func getDuelAnswers(duelId: String, completion: @escaping ([Answer]?, Error?) -> Void) {
-        DispatchQueue.global(qos: .background).async {
-            do {
-                let connection = try self.getConnection()
-                defer { connection.close() }
-
-                // Get all answers for the duel
-                let query = """
-                    SELECT 
-                        user_id,
-                        time_taken,
-                        is_correct,
-                        id
-                    FROM answers
-                    WHERE duel_id = $1
-                    ORDER BY id;
-                """
-                
-                let statement = try connection.prepareStatement(text: query)
-                defer { statement.close() }
-
-                let cursor = try statement.execute(parameterValues: [duelId])
-                defer { cursor.close() }
-
-                var rawAnswers: [(userId: String, timeTaken: Int, isCorrect: Bool, id: Int)] = []
-
-                while let rowResult = try cursor.next() {
-                    let row = try rowResult.get()
-                    
-                    let userId = try row.columns[0].string()
-                    let timeTaken = try row.columns[1].int()
-                    let isCorrect = try row.columns[2].bool()
-                    let id = try row.columns[3].int()
-                    
-                    rawAnswers.append((userId: userId, timeTaken: timeTaken, isCorrect: isCorrect, id: id))
-                }
-
-                // Process answers using the current user ID to identify user vs opponent answers
-                let currentUserId = self.currentUserId ?? ""
-                let answers = self.processRawAnswers(rawAnswers: rawAnswers, currentUserId: currentUserId)
-
-                DispatchQueue.main.async {
-                    completion(answers, nil)
-                }
-            } catch {
-                print("Error getting duel answers: \(error)")
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
-            }
-        }
-    }
-    
-    // Helper function to process raw answers into properly numbered rounds
-    private func processRawAnswers(rawAnswers: [(userId: String, timeTaken: Int, isCorrect: Bool, id: Int)], currentUserId: String) -> [Answer] {
-        // If there are no answers, return empty array
-        if rawAnswers.isEmpty {
-            return []
-        }
-        
-        // Get unique user IDs
-        let userIds = Array(Set(rawAnswers.map { $0.userId }))
-        
-        // Initialize answers array
-        var answers: [Answer] = []
-        
-        // Assign question numbers based on pairs of answers
-        var userAnswerCounts: [String: Int] = [:]
-        for userId in userIds {
-            userAnswerCounts[userId] = 0
-        }
-        
-        for rawAnswer in rawAnswers {
-            // Increment this user's answer count
-            userAnswerCounts[rawAnswer.userId, default: 0] += 1
-            
-            // The question number is the user's answer count
-            let questionNumber = userAnswerCounts[rawAnswer.userId, default: 0]
-            
-            // Determine if this is a user answer based on comparing with current user ID
-            let isUserAnswer = rawAnswer.userId == currentUserId
-            
-            // Create the new Answer model object
-            let answer = Answer(
-                userId: rawAnswer.userId,
-                questionNumber: questionNumber,
-                timeTaken: rawAnswer.timeTaken,
-                isCorrect: rawAnswer.isCorrect,
-                isUserAnswer: isUserAnswer
-            )
-            
-            answers.append(answer)
-        }
-        
-        return answers
     }
     
     // Initialize with saved login state (if any)

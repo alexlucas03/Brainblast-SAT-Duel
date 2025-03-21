@@ -32,7 +32,7 @@ struct RainbowButton: ViewModifier {
         content
             .font(.headline)
             .fontWeight(.semibold)
-            .foregroundColor(.white)  // Change from .white to .black
+            .foregroundColor(.black)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
             .background(
@@ -93,191 +93,175 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.white.ignoresSafeArea()
-                VStack {
-                    if let username = dbManager.currentUsername {
-                        Text("Welcome, \(username.prefix(1).uppercased() + username.dropFirst())!")
-                            .font(.title)
-                            .padding()
-                            .foregroundColor(.black)
-                        
-                        Text("Here are your active duels:")
-                            .font(.title2)
-                            .padding()
-                            .foregroundColor(.black)
-                        
-                        VStack(alignment: .leading) {
-                            if duelViewModels.isEmpty {
-                                Text("You're not in any duels yet.")
-                                    .foregroundColor(.gray)
-                                    .padding()
-                            } else {
-                                List {
-                                    ForEach(duelViewModels) { viewModel in
-                                        Button(action: {
-                                            appState.startNavigating()
-                                            determineDuelNavigation(duel: viewModel.duel)
-                                        }) {
-                                            HStack {
-                                                // Left side - Opponent name and copy button for room code
-                                                VStack(alignment: .leading) {
-                                                    if viewModel.opponentName.hasPrefix("Duel Code:") {
-                                                        HStack(spacing: 4) {
-                                                            Text("Duel Code:")
-                                                                .font(.headline)
-                                                                .foregroundColor(.black)
-                                                            
-                                                            Text(viewModel.duel.roomCode)
-                                                                .font(.system(.body, design: .monospaced))
-                                                                .fontWeight(.bold)
-                                                                .foregroundColor(.black)
-                                                            
-                                                            Button(action: {
-                                                                UIPasteboard.general.string = viewModel.duel.roomCode
-                                                                alertTitle = "Success"
-                                                                alertMessage = "Room code copied to clipboard!"
-                                                                showAlert = true
-                                                            }) {
-                                                                Image(systemName: "doc.on.doc")
-                                                                    .font(.caption)
-                                                                    .foregroundColor(.blue)
-                                                            }
-                                                            .disabled(appState.isShowingLoadingView)
-                                                        }
-                                                    } else {
-                                                        Text("You vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+            VStack {
+                if let username = dbManager.currentUsername {
+                    Text("Welcome, \(username.prefix(1).uppercased() + username.dropFirst())!")
+                        .font(.title)
+                        .padding()
+
+                    Text("Here are your active duels:")
+                        .font(.title2)
+                        .padding()
+
+                    VStack(alignment: .leading) {
+                        if duelViewModels.isEmpty {
+                            Text("You're not in any duels yet.")
+                                .foregroundColor(.gray)
+                                .padding()
+                        } else {
+                            List {
+                                ForEach(duelViewModels) { viewModel in
+                                    Button(action: {
+                                        appState.startNavigating()
+                                        determineDuelNavigation(duel: viewModel.duel)
+                                    }) {
+                                        HStack {
+                                            // Left side - Opponent name and copy button for room code
+                                            VStack(alignment: .leading) {
+                                                if viewModel.opponentName.hasPrefix("Duel Code:") {
+                                                    HStack(spacing: 4) {
+                                                        Text("Duel Code:")
                                                             .font(.headline)
-                                                            .foregroundColor(.black)
+                                                        
+                                                        Text(viewModel.duel.roomCode)
+                                                            .font(.system(.body, design: .monospaced))
+                                                            .fontWeight(.bold)
+                                                        
+                                                        Button(action: {
+                                                            UIPasteboard.general.string = viewModel.duel.roomCode
+                                                            alertTitle = "Success"
+                                                            alertMessage = "Room code copied to clipboard!"
+                                                            showAlert = true
+                                                        }) {
+                                                            Image(systemName: "doc.on.doc")
+                                                                .font(.caption)
+                                                        }
+                                                        .disabled(appState.isShowingLoadingView)
                                                     }
+                                                } else {
+                                                    Text("You vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+                                                        .font(.headline)
                                                 }
-                                                
-                                                Spacer()
-                                                
-                                                // Right side - Score
-                                                Text(viewModel.scoreText)
-                                                    .font(.headline)
-                                                    .foregroundColor(.black)
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 4)
-                                                    .background(
-                                                        RoundedRectangle(cornerRadius: 8)
-                                                            .fill(Color.gray.opacity(0.2))
-                                                    )
                                             }
-                                            .padding(.vertical, 12) // Increased from 4 to 12 to make items taller
-                                            .background(Color.white)
+
+                                            Spacer()
+
+                                            // Right side - Score
+                                            Text(viewModel.scoreText)
+                                                .font(.headline)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 4)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .fill(Color.gray.opacity(0.2))
+                                                )
                                         }
-                                        .buttonStyle(PlainButtonStyle())
-                                        .listRowBackground(Color.white)
-                                        .listRowInsets(EdgeInsets())
-                                        .background(Color.white)
-                                        .disabled(appState.isShowingLoadingView)
+                                        .padding(.vertical, 4)
                                     }
+                                    .disabled(appState.isShowingLoadingView)
                                 }
-                                .listStyle(PlainListStyle())
-                                .background(Color.white)
-                                .modifier(RainbowBorder())
-                                .padding(.horizontal)
                             }
+                            .listStyle(PlainListStyle())
+                            .modifier(RainbowBorder())
+                            .padding(.horizontal)
                         }
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .foregroundColor(.white)
-                        
-                        // Vertically stacked buttons with rainbow style
-                        VStack(spacing: 12) {
-                            Button("Join Duel") {
-                                showJoinDuelSheet = true
-                            }
-                            .foregroundColor(.black) // Changed to black
-                            .modifier(RainbowButton(isEnabled: !appState.isShowingLoadingView))
-                            .disabled(appState.isShowingLoadingView)
-                            
-                            Button("New Duel") {
-                                appState.startLoading()
-                                startNewDuel()
-                            }
-                            .foregroundColor(.black)
-                            .modifier(RainbowButton(isEnabled: !appState.isShowingLoadingView))
-                            .disabled(appState.isShowingLoadingView)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .top)
+
+                    // The rest of your existing code...
+                    // Vertically stacked buttons with rainbow style
+                    VStack(spacing: 12) {
+                        Button("Join Duel") {
+                            showJoinDuelSheet = true
                         }
-                        .padding(.vertical)
+                        .modifier(RainbowButton(isEnabled: !appState.isShowingLoadingView))
+                        .disabled(appState.isShowingLoadingView)
+
+                        Button("New Duel") {
+                            appState.startLoading()
+                            startNewDuel()
+                        }
+                        .modifier(RainbowButton(isEnabled: !appState.isShowingLoadingView))
+                        .disabled(appState.isShowingLoadingView)
                     }
-                }
-                .navigationDestination(item: $navigationDestination) { destination in
-                    switch destination {
-                    case .duelDetail(let duel):
-                        DuelDetailView(duel: duel)
-                            .onAppear {
-                                appState.stopNavigating()
-                            }
-                    case .game(let duel, let userId):
-                        GameView(duel: duel, userId: userId)
-                            .onAppear {
-                                appState.stopNavigating()
-                            }
-                    }
-                }
-                .onAppear {
-                    if duelViewModels.isEmpty {
+                    .padding(.vertical)
+
+                    Spacer()
+
+                    Button("Logout") {
                         appState.startLoading()
-                        loadDuels()
+                        performLogout()
                     }
-                    appState.stopNavigating()
-                }
-                .alert(isPresented: $showAlert) {
-                    Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
-                }
-                .sheet(isPresented: $showJoinDuelSheet) {
-                    joinDuelView
-                }
-                .alert("Success", isPresented: $showSuccessAlert) {
-                    Button("OK", role: .cancel) {
-                        loadDuels()
-                    }
-                } message: {
-                    Text(successMessage)
+                    .padding()
+                    .foregroundColor(.red)
+                    .disabled(appState.isShowingLoadingView)
                 }
             }
+            .navigationDestination(item: $navigationDestination) { destination in
+                switch destination {
+                case .duelDetail(let duel):
+                    DuelDetailView(duel: duel)
+                        .onAppear {
+                            appState.stopNavigating()
+                        }
+                case .game(let duel, let userId):
+                    GameView(duel: duel, userId: userId)
+                        .onAppear {
+                            appState.stopNavigating()
+                        }
+                }
+            }
+            .onAppear {
+                if duelViewModels.isEmpty {
+                    appState.startLoading()
+                    loadDuels()
+                }
+                appState.stopNavigating()
+            }
+            .alert(isPresented: $showAlert) {
+                Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+            }
+            .sheet(isPresented: $showJoinDuelSheet) {
+                joinDuelView
+            }
+            .alert("Success", isPresented: $showSuccessAlert) {
+                Button("OK", role: .cancel) {
+                    loadDuels()
+                }
+            } message: {
+                Text(successMessage)
+            }
         }
+        .background(Color.white)
     }
 
     private var joinDuelView: some View {
-        ZStack {
-            Color.white.ignoresSafeArea()
-            VStack(spacing: 20) {
-                Text("Join Duel")
-                    .foregroundColor(.black)
-                    .font(.title)
-                    .bold()
+        VStack(spacing: 20) {
+            Text("Join Duel")
+                .font(.title)
+                .bold()
 
-                TextField("Enter Duel Code", text: $duelCode)
-                    .foregroundColor(.black)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-                    .autocapitalization(.allCharacters)
-                    .background(Color.white)
-                    .colorScheme(.light)
-
-                Button("Join") {
-                    appState.startLoading()
-                    showJoinDuelSheet = false
-                    joinDuel(code: duelCode)
-                }
-                .foregroundColor(.black)  // This will be overridden by the RainbowButton modifier
-                .modifier(RainbowButton(isEnabled: !duelCode.isEmpty && !appState.isShowingLoadingView))
-                .disabled(duelCode.isEmpty || appState.isShowingLoadingView)
-
-                Button("Cancel") {
-                    showJoinDuelSheet = false
-                    duelCode = ""
-                }
-                .foregroundColor(.red)
+            TextField("Enter Duel Code", text: $duelCode)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
+                .autocapitalization(.allCharacters)
+
+            Button("Join") {
+                appState.startLoading()
+                showJoinDuelSheet = false
+                joinDuel(code: duelCode)
+            }
+            .modifier(RainbowButton(isEnabled: !duelCode.isEmpty && !appState.isShowingLoadingView))
+            .disabled(duelCode.isEmpty || appState.isShowingLoadingView)
+
+            Button("Cancel") {
+                showJoinDuelSheet = false
+                duelCode = ""
             }
             .padding()
-            .background(Color.white)
+            .foregroundColor(.red)
         }
+        .padding()
     }
 
     private func loadDuels() {
