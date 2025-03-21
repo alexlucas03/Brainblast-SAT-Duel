@@ -890,10 +890,90 @@ class PostgresDBManager: ObservableObject {
 
             _ = try updateStatement.execute(parameterValues: [duelId])
 
-            // Optionally, mark the duel as completed
+            // Mark the duel as completed
             try completeDuel(duelId: duelId, connection: connection)
 
             print("Winner found: \(winnerId) in duel \(duelId)")
+            
+            // Get winner and loser info for notifications
+            DispatchQueue.global(qos: .background).async {
+                self.getWinnerAndLoserInfo(duelId: duelId, winnerId: winnerId) { winnerOneSignalId, winnerName, loserOneSignalId, loserName in
+                    if let winnerOneSignalId = winnerOneSignalId,
+                       let winnerName = winnerName,
+                       let loserOneSignalId = loserOneSignalId,
+                       let loserName = loserName {
+                        // Send game result notifications
+                        OneSignalManager.shared.sendGameResultNotification(
+                            winnerId: winnerOneSignalId,
+                            winnerName: winnerName,
+                            loserId: loserOneSignalId,
+                            loserName: loserName,
+                            duelId: duelId
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    // Helper function to get winner and loser information for notifications
+    func getWinnerAndLoserInfo(duelId: String, winnerId: String, completion: @escaping (String?, String?, String?, String?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Get winner info
+                let winnerQuery = """
+                    SELECT u.username, u.onesignal_id
+                    FROM users u
+                    WHERE u.id = $1;
+                """
+                let winnerStatement = try connection.prepareStatement(text: winnerQuery)
+                defer { winnerStatement.close() }
+                
+                let winnerCursor = try winnerStatement.execute(parameterValues: [winnerId])
+                defer { winnerCursor.close() }
+                
+                var winnerName: String?
+                var winnerOneSignalId: String?
+                var loserName: String?
+                var loserOneSignalId: String?
+                
+                if let winnerRowResult = try winnerCursor.next() {
+                    let winnerRow = try winnerRowResult.get()
+                    winnerName = try winnerRow.columns[0].string()
+                    winnerOneSignalId = try winnerRow.columns[1].optionalString()
+                    
+                    // Get loser info
+                    let loserQuery = """
+                        SELECT u.username, u.onesignal_id
+                        FROM duel_participants dp
+                        JOIN users u ON CAST(dp.user_id AS INTEGER) = u.id
+                        WHERE dp.duel_id = $1 AND dp.user_id != $2;
+                    """
+                    let loserStatement = try connection.prepareStatement(text: loserQuery)
+                    defer { loserStatement.close() }
+                    
+                    let loserCursor = try loserStatement.execute(parameterValues: [duelId, winnerId])
+                    defer { loserCursor.close() }
+                    
+                    if let loserRowResult = try loserCursor.next() {
+                        let loserRow = try loserRowResult.get()
+                        loserName = try loserRow.columns[0].string()
+                        loserOneSignalId = try loserRow.columns[1].optionalString()
+                    }
+                }
+                
+                DispatchQueue.main.async {
+                    completion(winnerOneSignalId, winnerName, loserOneSignalId, loserName)
+                }
+            } catch {
+                print("Error getting winner and loser info: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, nil, nil, nil)
+                }
+            }
         }
     }
     
@@ -1115,7 +1195,36 @@ class PostgresDBManager: ObservableObject {
 
         _ = try participantsUpdateStatement.execute(parameterValues: [duelId])
     }
+    
+    private func switchTurn(duelId: String, currentUserId: String, connection: Connection) throws {
+        // Find the opponent's user ID
+        let opponentQuery = """
+            SELECT user_id FROM duel_participants
+            WHERE duel_id = $1 AND user_id != $2;
+        """
+        let opponentStatement = try connection.prepareStatement(text: opponentQuery)
+        defer { opponentStatement.close() }
 
+        let opponentCursor = try opponentStatement.execute(parameterValues: [duelId, currentUserId])
+        defer { opponentCursor.close() }
+
+        if let rowResult = try opponentCursor.next() {
+            let row = try rowResult.get()
+            let opponentUserId = try row.columns[0].string()
+
+            // Update is_their_turn flags
+            let updateQuery = """
+                UPDATE duel_participants
+                SET is_their_turn = (user_id = $1)
+                WHERE duel_id = $2;
+            """
+            let updateStatement = try connection.prepareStatement(text: updateQuery)
+            defer { updateStatement.close() }
+
+            _ = try updateStatement.execute(parameterValues: [opponentUserId, duelId])
+        }
+    }
+    
     func switchTurn(duelId: String, currentUserId: String, completion: @escaping (Bool, Error?) -> Void) {
         DispatchQueue.global(qos: .background).async {
             do {
@@ -1302,6 +1411,198 @@ class PostgresDBManager: ObservableObject {
             self.isLoggedIn = true
             self.currentUserId = UserDefaults.standard.string(forKey: "currentUserId")
             self.currentUsername = UserDefaults.standard.string(forKey: "currentUsername")
+        }
+    }
+}
+
+extension PostgresDBManager {
+    // Save a user's OneSignal player ID
+    func saveOneSignalPlayerId(userId: String, playerId: String, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Add column to users table if it doesn't exist
+                let checkColumnQuery = """
+                    DO $$ 
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT FROM information_schema.columns 
+                            WHERE table_name = 'users' AND column_name = 'onesignal_id'
+                        ) THEN
+                            ALTER TABLE users ADD COLUMN onesignal_id TEXT;
+                        END IF;
+                    END $$;
+                """
+                let checkColumnStatement = try connection.prepareStatement(text: checkColumnQuery)
+                defer { checkColumnStatement.close() }
+                _ = try checkColumnStatement.execute()
+                
+                // Update the user with their OneSignal ID
+                let updateQuery = "UPDATE users SET onesignal_id = $1 WHERE id = $2;"
+                let statement = try connection.prepareStatement(text: updateQuery)
+                defer { statement.close() }
+                
+                _ = try statement.execute(parameterValues: [playerId, userId])
+                
+                DispatchQueue.main.async {
+                    completion(true, nil)
+                }
+            } catch {
+                print("Error saving OneSignal player ID: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
+        }
+    }
+    
+    // Get opponent's information including OneSignal ID
+    func getOpponentInfo(duelId: String, currentUserId: String, completion: @escaping (String?, String?, String?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // Fixed query with proper type casting
+                let query = """
+                    SELECT u.id, u.username, u.onesignal_id
+                    FROM duel_participants dp
+                    JOIN users u ON CAST(dp.user_id AS INTEGER) = u.id
+                    WHERE dp.duel_id = $1 AND dp.user_id != $2;
+                """
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute(parameterValues: [duelId, currentUserId])
+                defer { cursor.close() }
+                
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    let userId = try row.columns[0].string()
+                    let username = try row.columns[1].string()
+                    let oneSignalId = try row.columns[2].optionalString()
+                    
+                    print("Retrieved opponent info - userId: \(userId), username: \(username), oneSignalId: \(oneSignalId ?? "nil")")
+                    
+                    DispatchQueue.main.async {
+                        completion(userId, username, oneSignalId, nil)
+                    }
+                } else {
+                    print("No opponent found for duel \(duelId) and user \(currentUserId)")
+                    DispatchQueue.main.async {
+                        completion(nil, nil, nil, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "Opponent not found"]))
+                    }
+                }
+            } catch {
+                print("Error getting opponent info: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, nil, nil, error)
+                }
+            }
+        }
+    }
+    
+    // Get the room code for a duel
+    func getDuelRoomCode(duelId: String, completion: @escaping (String?, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                let query = "SELECT room_code FROM duels WHERE id = $1;"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                let cursor = try statement.execute(parameterValues: [duelId])
+                defer { cursor.close() }
+                
+                if let rowResult = try cursor.next() {
+                    let row = try rowResult.get()
+                    let roomCode = try row.columns[0].string()
+                    
+                    DispatchQueue.main.async {
+                        completion(roomCode, nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(nil, NSError(domain: "DBError", code: 404, userInfo: [NSLocalizedDescriptionKey: "Duel not found"]))
+                    }
+                }
+            } catch {
+                print("Error getting duel room code: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
+        }
+    }
+    
+    // Modified recordAnswer method that also handles notifications via OneSignalManager
+    func recordAnswerAndNotify(userId: String, duelId: String, timeTaken: Int, isCorrect: Bool, completion: @escaping (Bool, Error?) -> Void) {
+        DispatchQueue.global(qos: .background).async {
+            do {
+                let connection = try self.getConnection()
+                defer { connection.close() }
+                
+                // 1. Record the answer
+                let query = "INSERT INTO answers (user_id, duel_id, time_taken, is_correct) VALUES ($1, $2, $3, $4);"
+                let statement = try connection.prepareStatement(text: query)
+                defer { statement.close() }
+                
+                _ = try statement.execute(parameterValues: [userId, duelId, timeTaken, isCorrect])
+                
+                // 2. Check for round completion and score update
+                try self.checkAndUpdateScores(duelId: duelId, connection: connection)
+                
+                // 3. Switch the turn
+                try self.switchTurn(duelId: duelId, currentUserId: userId, connection: connection)
+                
+                DispatchQueue.main.async {
+                    // 4. Now handle the notification part
+                    if let username = self.currentUsername {
+                        // Get the room code
+                        self.getDuelRoomCode(duelId: duelId) { roomCode, roomCodeError in
+                            if let roomCode = roomCode {
+                                // Get the opponent info with the OneSignal ID this time
+                                self.getOpponentInfo(duelId: duelId, currentUserId: userId) { opponentId, opponentName, opponentOneSignalId, opponentError in
+                                    // Check specifically for the OneSignal ID
+                                    if let opponentOneSignalId = opponentOneSignalId, !opponentOneSignalId.isEmpty {
+                                        print("Sending notification to opponent with OneSignal ID: \(opponentOneSignalId)")
+                                        
+                                        // Send notification using the OneSignal ID
+                                        OneSignalManager.shared.sendTurnNotification(
+                                            to: opponentOneSignalId,  // Important: Use ONLY the OneSignal ID here!
+                                            duelId: duelId,
+                                            roomCode: roomCode,
+                                            username: username
+                                        )
+                                        completion(true, nil)
+                                    } else {
+                                        print("Cannot send notification: Missing opponent OneSignal ID for user \(opponentId ?? "unknown")")
+                                        // Still mark as success even if notification fails
+                                        completion(true, NSError(domain: "NotificationError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Opponent's OneSignal ID not found"]))
+                                    }
+                                }
+                            } else {
+                                print("Cannot send notification: Missing room code")
+                                // Still mark as success even if notification fails
+                                completion(true, roomCodeError)
+                            }
+                        }
+                    } else {
+                        print("Cannot send notification: Missing current username")
+                        // Still mark as success even if notification fails
+                        completion(true, nil)
+                    }
+                }
+            } catch {
+                print("Error recording answer: \(error)")
+                DispatchQueue.main.async {
+                    completion(false, error)
+                }
+            }
         }
     }
 }

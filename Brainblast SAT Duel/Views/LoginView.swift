@@ -1,4 +1,5 @@
 import SwiftUI
+import OneSignalFramework
 
 struct LoginView: View {
     @State private var username: String = ""
@@ -85,6 +86,9 @@ struct LoginView: View {
             }
         }
         .preferredColorScheme(.light)
+        .onAppear {
+            setupNotificationListeners()
+        }
     }
 
     private func loginUser() {
@@ -100,17 +104,53 @@ struct LoginView: View {
         dbManager.loginOrCreateUser(username: username) { success in
             DispatchQueue.main.async {
                 if success {
-                    // When login is successful, switch from loading to navigating
+                    // When login is successful, save the OneSignal player ID to the database
+                    if let userId = self.dbManager.currentUserId {
+                        if let playerId = OneSignalManager.shared.playerId {
+                            // Save OneSignal ID to database
+                            self.dbManager.saveOneSignalPlayerId(userId: userId, playerId: playerId) { success, error in
+                                if success {
+                                    print("Successfully saved OneSignal player ID: \(playerId)")
+                                } else {
+                                    print("Error saving OneSignal player ID: \(error?.localizedDescription ?? "Unknown error")")
+                                }
+                            }
+                            
+                            // Also set external user ID in OneSignal
+                            OneSignalManager.shared.setExternalUserId(userId: userId)
+                        } else {
+                            print("OneSignal player ID not available yet")
+                        }
+                    }
+                    
+                    // Switch from loading to navigating
                     appState.stopLoading()
                     appState.startNavigating()
-                    
-                    // The main app structure will handle showing ContentView after login
-                    // and ContentView's onAppear will call appState.stopNavigating()
                 } else {
                     // Stop loading and show error
                     appState.stopLoading()
                     alertMessage = "Connection error. Please try again."
                     showAlert = true
+                }
+            }
+        }
+    }
+    
+    private func setupNotificationListeners() {
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("OneSignalPlayerIDUpdated"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let playerId = notification.userInfo?["playerId"] as? String,
+               let userId = self.dbManager.currentUserId {
+                // Update the OneSignal ID in the database
+                self.dbManager.saveOneSignalPlayerId(userId: userId, playerId: playerId) { success, error in
+                    if success {
+                        print("Updated OneSignal player ID in database after delayed update: \(playerId)")
+                    } else {
+                        print("Error updating OneSignal player ID: \(error?.localizedDescription ?? "Unknown error")")
+                    }
                 }
             }
         }

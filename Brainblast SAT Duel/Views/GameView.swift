@@ -240,10 +240,10 @@ struct GameView: View {
         
         let isCorrect = answer == correctOption
         
-        dbManager.recordAnswer(userId: userId, duelId: duel.id, timeTaken: Int(elapsedTime), isCorrect: isCorrect) { success, error in
+        // Use recordAnswerAndNotify instead of just recordAnswer
+        dbManager.recordAnswerAndNotify(userId: userId, duelId: duel.id, timeTaken: Int(elapsedTime), isCorrect: isCorrect) { success, error in
             if success {
-                print("Answer recorded successfully")
-                updateTurn()
+                print("Answer recorded successfully and notification sent")
                 
                 // Switch from loading to navigating state
                 DispatchQueue.main.async {
@@ -269,6 +269,36 @@ struct GameView: View {
         dbManager.switchTurn(duelId: duel.id, currentUserId: userId) { success, error in
             if success {
                 print("Turn switched successfully")
+                
+                // Now send a notification to the opponent
+                if let username = self.dbManager.currentUsername {
+                    self.dbManager.getDuelRoomCode(duelId: self.duel.id) { roomCode, roomCodeError in
+                        if let roomCode = roomCode {
+                            // Get opponent info including their OneSignal ID
+                            self.dbManager.getOpponentInfo(duelId: self.duel.id, currentUserId: self.userId) { opponentId, opponentName, opponentOneSignalId, opponentError in
+                                if let opponentId = opponentId {
+                                    print("Sending turn notification to opponent: \(opponentId)")
+                                    
+                                    // If we have their OneSignal ID, use that instead of database user ID
+                                    let targetId = opponentOneSignalId ?? opponentId
+                                    
+                                    OneSignalManager.shared.sendTurnNotification(
+                                        to: targetId,
+                                        duelId: self.duel.id,
+                                        roomCode: roomCode,
+                                        username: username
+                                    )
+                                } else {
+                                    print("Could not find opponent to send notification: \(opponentError?.localizedDescription ?? "Unknown error")")
+                                }
+                            }
+                        } else {
+                            print("Error getting room code for notification: \(roomCodeError?.localizedDescription ?? "Unknown error")")
+                        }
+                    }
+                } else {
+                    print("Cannot send notification: Missing current username")
+                }
             } else {
                 print("Error switching turn: \(error?.localizedDescription ?? "Unknown error")")
             }

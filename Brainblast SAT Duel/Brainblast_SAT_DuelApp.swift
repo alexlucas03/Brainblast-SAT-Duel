@@ -5,6 +5,7 @@ class AppState: ObservableObject {
     @Published var isNavigating: Bool = false
     @Published var isLoading: Bool = false
     @Published var isAnimationCompleting: Bool = false
+    var dbManager: PostgresDBManager?
     
     // Animation duration estimate (adjust based on your GIF length)
     private let animationDuration: TimeInterval = 1.5 // Estimate in seconds
@@ -58,6 +59,36 @@ class AppState: ObservableObject {
             self.isAnimationCompleting = false
         }
     }
+    
+    func setupOneSignalObserver() {
+        // Add observer for when the OneSignal Player ID is updated
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("OneSignalPlayerIDUpdated"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let dbManager = self.dbManager,  // Properly unwrap the optional dbManager
+                  let userId = dbManager.currentUserId,  // Now use the unwrapped dbManager
+                  let playerId = notification.userInfo?["playerId"] as? String else {
+                return
+            }
+            
+            print("Received OneSignal player ID update: \(playerId)")
+            
+            // Save the OneSignal player ID to the database
+            dbManager.saveOneSignalPlayerId(userId: userId, playerId: playerId) { success, error in
+                if success {
+                    print("Successfully saved OneSignal player ID to database")
+                } else {
+                    print("Failed to save OneSignal player ID: \(error?.localizedDescription ?? "Unknown error")")
+                }
+            }
+            
+            // Also set up the external user ID in OneSignal
+            OneSignalManager.shared.setExternalUserId(userId: userId)
+        }
+    }
 }
 
 @main
@@ -66,6 +97,11 @@ struct BrainblastSATDuelApp: App {
     @StateObject private var dbManager = PostgresDBManager()
     @StateObject private var appState = AppState()
     @State private var isAppReady = false
+    
+    init() {
+        // Initialize OneSignal
+        OneSignalManager.shared.initialize()
+    }
     
     var body: some Scene {
         WindowGroup {
