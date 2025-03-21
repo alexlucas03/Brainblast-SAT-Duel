@@ -2,6 +2,30 @@ import SwiftUI
 import Foundation
 import PostgresClientKit
 
+struct RainbowText: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 0.78, green: 0.5, blue: 0.4),  // Darker peach
+                        Color(red: 0.75, green: 0.75, blue: 0.4), // Darker yellow
+                        Color(red: 0.4, green: 0.78, blue: 0.4),  // Darker green
+                        Color(red: 0.3, green: 0.6, blue: 0.78)   // Darker blue
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+    }
+}
+
+extension View {
+    func rainbowText() -> some View {
+        self.modifier(RainbowText())
+    }
+}
+
 struct RainbowBorder: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -61,6 +85,7 @@ struct DuelViewModel: Identifiable {
     var opponentName: String
     var userScore: Int = 0
     var opponentScore: Int = 0
+    var isUserTurn: Bool = false
     
     init(id: String, duel: Duel) {
         self.id = id
@@ -149,9 +174,15 @@ struct ContentView: View {
                                                             .disabled(appState.isShowingLoadingView)
                                                         }
                                                     } else {
-                                                        Text("vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
-                                                            .font(.headline)
-                                                            .foregroundColor(.black)
+                                                        if viewModel.isUserTurn {
+                                                            Text("vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+                                                                .font(.headline)
+                                                                .rainbowText()
+                                                        } else {
+                                                            Text("vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+                                                                .font(.headline)
+                                                                .foregroundColor(.black)
+                                                        }
                                                     }
                                                 }
                                                 
@@ -337,7 +368,7 @@ struct ContentView: View {
                 // Load participants for each duel
                 for (index, duel) in fetchedDuels.enumerated() {
                     group.enter()
-                    dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
+                    dbManager.getDuelParticipantsIncludingLeft(duelId: duel.id) { participants, error in
                         defer {
                             group.leave()
                         }
@@ -346,13 +377,18 @@ struct ContentView: View {
                         
                         // Find the current user and opponent
                         if let currentUsername = dbManager.currentUsername {
-                            let currentUserParticipant = participants.first(where: { $0.username == currentUsername })
-                            let opponentParticipant = participants.first(where: { $0.username != currentUsername })
+                            let currentUserParticipant = participants.first(where: { $0.userId == currentUserId })
+                            let opponentParticipant = participants.first(where: { $0.userId != currentUserId })
                             
                             DispatchQueue.main.async {
                                 if let opponent = opponentParticipant {
                                     viewModels[index].opponentName = opponent.username
                                     viewModels[index].opponentScore = opponent.score
+                                    
+                                    // If opponent has left, add an indicator
+                                    if opponent.hasLeft {
+                                        viewModels[index].opponentName += " (left)"
+                                    }
                                 }
                                 
                                 if let currentUser = currentUserParticipant {
@@ -360,6 +396,24 @@ struct ContentView: View {
                                 }
                             }
                         }
+                    }
+                    
+                    // Check if it's the user's turn
+                    group.enter()
+                    if let userId = dbManager.currentUserId {
+                        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+                            defer {
+                                group.leave()
+                            }
+                            
+                            if let isTurn = isTurn, isTurn {
+                                DispatchQueue.main.async {
+                                    viewModels[index].isUserTurn = true
+                                }
+                            }
+                        }
+                    } else {
+                        group.leave()
                     }
                 }
                 
@@ -402,7 +456,7 @@ struct ContentView: View {
                 // Load participants for each duel
                 for (index, duel) in fetchedDuels.enumerated() {
                     group.enter()
-                    dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
+                    dbManager.getDuelParticipantsIncludingLeft(duelId: duel.id) { participants, error in
                         defer {
                             group.leave()
                         }
@@ -411,13 +465,18 @@ struct ContentView: View {
                         
                         // Find the current user and opponent
                         if let currentUsername = dbManager.currentUsername {
-                            let currentUserParticipant = participants.first(where: { $0.username == currentUsername })
-                            let opponentParticipant = participants.first(where: { $0.username != currentUsername })
+                            let currentUserParticipant = participants.first(where: { $0.userId == currentUserId })
+                            let opponentParticipant = participants.first(where: { $0.userId != currentUserId })
                             
                             DispatchQueue.main.async {
                                 if let opponent = opponentParticipant {
                                     viewModels[index].opponentName = opponent.username
                                     viewModels[index].opponentScore = opponent.score
+                                    
+                                    // If opponent has left, add an indicator
+                                    if opponent.hasLeft {
+                                        viewModels[index].opponentName += " (left)"
+                                    }
                                 }
                                 
                                 if let currentUser = currentUserParticipant {
@@ -425,6 +484,24 @@ struct ContentView: View {
                                 }
                             }
                         }
+                    }
+                    
+                    // Check if it's the user's turn
+                    group.enter()
+                    if let userId = dbManager.currentUserId {
+                        dbManager.isUsersTurn(userId: userId, duelId: duel.id) { isTurn, error in
+                            defer {
+                                group.leave()
+                            }
+                            
+                            if let isTurn = isTurn, isTurn {
+                                DispatchQueue.main.async {
+                                    viewModels[index].isUserTurn = true
+                                }
+                            }
+                        }
+                    } else {
+                        group.leave()
                     }
                 }
                 
