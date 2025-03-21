@@ -110,6 +110,10 @@ struct DuelDetailView: View {
     // Timer for polling turn status
     @State private var timer: Timer? = nil
     
+    // For tracking transitions from GameView
+    @State private var isReturningFromGameView: Bool = false
+    @State private var syncAttempts: Int = 0
+    
     // For winner determination
     private enum RoundWinner {
         case user
@@ -127,6 +131,16 @@ struct DuelDetailView: View {
                 destination: Group {
                     if let userId = dbManager.currentUserId {
                         GameView(duel: duel, userId: userId)
+                            .onDisappear {
+                                // Flag that we're returning from GameView
+                                isReturningFromGameView = true
+                                // Reset sync attempts
+                                syncAttempts = 0
+                                // Start loading immediately to give feedback to user
+                                appState.startLoading()
+                                // Start the sync process
+                                waitForDBSync()
+                            }
                     } else {
                         // Fallback if somehow userId is missing
                         Text("Unable to start game: User ID not found")
@@ -190,16 +204,71 @@ struct DuelDetailView: View {
         }
         .hidden()
         .onAppear {
-            // Load initial data when view appears
-            appState.startLoading()
-            loadData()
-            
-            // Start polling for turn updates
-            startTurnPolling()
+            // Don't reload data if we're returning from GameView - waitForDBSync will handle it
+            if !isReturningFromGameView {
+                // Load initial data when view appears
+                appState.startLoading()
+                loadData()
+                
+                // Start polling for turn updates
+                startTurnPolling()
+            }
         }
         .onDisappear {
             // Cancel the timer when view disappears
             stopTurnPolling()
+        }
+    }
+    
+    // New function to wait for DB sync after returning from GameView
+    private func waitForDBSync() {
+        // Maximum sync attempts (3 seconds per attempt = 15 seconds total max wait)
+        let maxSyncAttempts = 5
+        
+        // If too many attempts, give up and just load data normally
+        if syncAttempts >= maxSyncAttempts {
+            print("Max sync attempts reached, loading data normally")
+            isReturningFromGameView = false
+            loadData()
+            return
+        }
+        
+        syncAttempts += 1
+        
+        // Load participants to check if the score has been updated
+        dbManager.getDuelParticipants(duelId: duel.id) { fetchedParticipants, error in
+            if let participants = fetchedParticipants {
+                // Check if anyone has 3 or more points
+                let isGameOver = participants.contains { $0.score >= 3 }
+                
+                // Update state with new participants
+                DispatchQueue.main.async {
+                    self.participants = participants
+                    
+                    // Determine current user and opponent
+                    if let currentUsername = dbManager.currentUsername {
+                        self.currentUser = participants.first(where: { $0.username == currentUsername })
+                        self.opponent = participants.first(where: { $0.username != currentUsername })
+                    }
+                    
+                    // If game is over, show result view
+                    if isGameOver {
+                        appState.stopLoading()
+                        gameOver = true
+                        isReturningFromGameView = false
+                    }
+                    // Otherwise check if we need to wait longer for score updates
+                    else {
+                        // Get the latest answers to see if both players have answered
+                        loadAnswers(isSync: true)
+                    }
+                }
+            } else {
+                // Error fetching participants, try again after delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    waitForDBSync()
+                }
+            }
         }
     }
     
@@ -226,6 +295,17 @@ struct DuelDetailView: View {
                             .clipShape(Circle())
                     }
                     .disabled(appState.isShowingLoadingView)
+                    
+                    Spacer()
+                    
+                    // Room code
+                    Text(duel.roomCode)
+                        .font(.headline)
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(8)
                     
                     Spacer()
                     
@@ -443,6 +523,15 @@ struct DuelDetailView: View {
         dbManager.getDuelParticipants(duelId: duel.id) { (fetchedParticipants: [User]?, error: Error?) in
             DispatchQueue.main.async {
                 if let fetchedParticipants = fetchedParticipants {
+                    // Update participants
+                    self.participants = fetchedParticipants
+                    
+                    // Determine current user and opponent
+                    if let currentUsername = dbManager.currentUsername {
+                        self.currentUser = fetchedParticipants.first(where: { $0.username == currentUsername })
+                        self.opponent = fetchedParticipants.first(where: { $0.username != currentUsername })
+                    }
+                    
                     // Check if anyone has 3 or more points
                     let isGameOver = fetchedParticipants.contains { $0.score >= 3 }
                     
@@ -644,21 +733,37 @@ struct DuelDetailView: View {
         }
     }
     
-    private func loadAnswers() {
+    private func loadAnswers(isSync: Bool = false) {
         guard let userId = dbManager.currentUserId else {
-            appState.stopLoading()
+            if !isSync {
+                appState.stopLoading()
+            } else {
+                // In sync mode, try again after delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    waitForDBSync()
+                }
+            }
             return
         }
         
         dbManager.getDuelRounds(duelId: duel.id) { roundsData, error in
             DispatchQueue.main.async {
-                // Stop loading now that we have all data
-                appState.stopLoading()
+                // Stop loading now that we have all data (if not in sync mode)
+                if !isSync {
+                    appState.stopLoading()
+                }
                 
                 if let error = error {
-                    alertTitle = "Error"
-                    alertMessage = "Failed to load rounds: \(error.localizedDescription)"
-                    showAlert = true
+                    if isSync {
+                        // In sync mode, try again after delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            waitForDBSync()
+                        }
+                    } else {
+                        alertTitle = "Error"
+                        alertMessage = "Failed to load rounds: \(error.localizedDescription)"
+                        showAlert = true
+                    }
                 } else if let roundsData = roundsData {
                     // Process the rounds data
                     var processedRounds: [Round] = []
@@ -690,6 +795,53 @@ struct DuelDetailView: View {
                     
                     // Sort by question number to ensure correct order
                     self.rounds = processedRounds.sorted(by: { $0.questionNumber < $1.questionNumber })
+                    
+                    if isSync {
+                        // In sync mode, check if both players have answered the last round
+                        if let lastRound = processedRounds.max(by: { $0.questionNumber < $1.questionNumber }) {
+                            if lastRound.userAnswer != nil && lastRound.opponentAnswer != nil {
+                                // Both players have answered, reload participants to check final scores
+                                // This ensures we have the latest score data
+                                loadParticipants()
+                                
+                                // Give DB time to update scores, then check again in 1 second
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                    // We've confirmed both players have answered, check if game is over
+                                    if let user = currentUser, let opp = opponent {
+                                        let isGameOver = user.score >= 3 || opp.score >= 3
+                                        
+                                        if isGameOver {
+                                            // Game is over, show result view
+                                            appState.stopLoading()
+                                            gameOver = true
+                                            isReturningFromGameView = false
+                                        } else {
+                                            // Game not over, but we've confirmed the syncing is done
+                                            appState.stopLoading()
+                                            isReturningFromGameView = false
+                                            // Start turn polling again
+                                            startTurnPolling()
+                                        }
+                                    } else {
+                                        // Something weird happened, try again
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                            waitForDBSync()
+                                        }
+                                    }
+                                }
+                            } else {
+                                // One player hasn't answered yet, try again after delay
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                    waitForDBSync()
+                                }
+                            }
+                        } else {
+                            // No rounds yet, try again after delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                waitForDBSync()
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -39,23 +39,6 @@ struct DuelResultView: View {
                     .disabled(appState.isShowingLoadingView)
                     
                     Spacer()
-                    
-                    // Leave duel button
-                    Button(action: {
-                        appState.startNavigating()
-                        // For consistency, we'll use the same navigation action as home button
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            navigateToHome = true
-                        }
-                    }) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .font(.title3)
-                            .foregroundColor(.red)
-                            .padding(10)
-                            .background(Color.red.opacity(0.1))
-                            .clipShape(Circle())
-                    }
-                    .disabled(appState.isShowingLoadingView)
                 }
                 .padding(.horizontal)
                 
@@ -156,9 +139,6 @@ struct DuelResultView: View {
             // Make sure we reset any loading state when this view appears
             appState.stopLoading()
             appState.stopNavigating()
-            
-            // Remove player from the duel when view appears
-            removePlayerFromDuel()
         }
         .alert(isPresented: $showRemovalError) {
             Alert(
@@ -167,44 +147,5 @@ struct DuelResultView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-    }
-    
-    // Function to remove player from duel
-    private func removePlayerFromDuel() {
-        // Only attempt to remove if not already removed
-        guard !hasBeenRemoved, let userId = dbManager.currentUserId else {
-            return
-        }
-        
-        dbManager.leaveDuel(userId: userId, duelId: duelId) { success, error in
-            DispatchQueue.main.async {
-                if success {
-                    hasBeenRemoved = true
-                    print("Successfully removed from duel")
-                } else {
-                    showRemovalError = true
-                    errorMessage = "Failed to leave duel: \(error?.localizedDescription ?? "Unknown error")"
-                    print("Error removing from duel: \(error?.localizedDescription ?? "Unknown error")")
-                }
-            }
-        }
-    }
-}
-
-// Preview
-struct DuelResultView_Previews: PreviewProvider {
-    @State static var navigateToHome = false
-    
-    static var previews: some View {
-        DuelResultView(
-            navigateToHome: $navigateToHome,
-            isWinner: true,
-            opponentName: "Opponent",
-            userScore: 3,
-            opponentScore: 1,
-            duelId: "test-duel-id"
-        )
-        .environmentObject(AppState())
-        .environmentObject(PostgresDBManager())
     }
 }

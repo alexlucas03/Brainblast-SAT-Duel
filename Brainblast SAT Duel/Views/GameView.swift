@@ -298,15 +298,3 @@ struct GameView: View {
         }
     }
 }
-
-// Remove the extension - we'll use SwiftUI's built-in modifiers instead
-
-struct GameView_Previews: PreviewProvider {
-    static var previews: some View {
-        NavigationView {
-            GameView(duel: Duel(id: "testId", roomCode: "TEST", creatorId: "test", createdAt: Date(), completedAt: nil, active: true), userId: "testUserId")
-                .environmentObject(PostgresDBManager())
-                .environmentObject(AppState())
-        }
-    }
-}
