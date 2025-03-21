@@ -85,9 +85,6 @@ struct ContentView: View {
     @State private var showSuccessAlert: Bool = false
     @State private var successMessage: String = ""
     @State private var navigationDestination: NavigationDestination?
-    
-    // Timer for polling duel updates
-    @State private var pollingTimer: Timer? = nil
 
     enum NavigationDestination: Hashable {
         case duelDetail(Duel)
@@ -149,7 +146,7 @@ struct ContentView: View {
                                                             .disabled(appState.isShowingLoadingView)
                                                         }
                                                     } else {
-                                                        Text("vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
+                                                        Text("You vs " + viewModel.opponentName.prefix(1).uppercased() + viewModel.opponentName.dropFirst())
                                                             .font(.headline)
                                                             .foregroundColor(.black)
                                                     }
@@ -213,13 +210,11 @@ struct ContentView: View {
                         DuelDetailView(duel: duel)
                             .onAppear {
                                 appState.stopNavigating()
-                                stopPolling() // Stop polling when navigating away
                             }
                     case .game(let duel, let userId):
                         GameView(duel: duel, userId: userId)
                             .onAppear {
                                 appState.stopNavigating()
-                                stopPolling() // Stop polling when navigating away
                             }
                     }
                 }
@@ -229,13 +224,6 @@ struct ContentView: View {
                         loadDuels()
                     }
                     appState.stopNavigating()
-                    
-                    // Start polling for updates
-                    startPolling()
-                }
-                .onDisappear {
-                    // Stop polling when view disappears
-                    stopPolling()
                 }
                 .alert(isPresented: $showAlert) {
                     Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
@@ -255,123 +243,42 @@ struct ContentView: View {
     }
 
     private var joinDuelView: some View {
-        VStack(spacing: 20) {
-            Text("Join Duel")
-                .foregroundColor(.black)
-                .font(.title)
-                .bold()
+        ZStack {
+            Color.white.ignoresSafeArea()
+            VStack(spacing: 20) {
+                Text("Join Duel")
+                    .foregroundColor(.black)
+                    .font(.title)
+                    .bold()
 
-            TextField("Enter Duel Code", text: $duelCode)
-                .foregroundColor(.black)
+                TextField("Enter Duel Code", text: $duelCode)
+                    .foregroundColor(.black)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                    .autocapitalization(.allCharacters)
+                    .background(Color.white)
+                    .colorScheme(.light)
+
+                Button("Join") {
+                    appState.startLoading()
+                    showJoinDuelSheet = false
+                    joinDuel(code: duelCode)
+                }
+                .foregroundColor(.black)  // This will be overridden by the RainbowButton modifier
+                .modifier(RainbowButton(isEnabled: !duelCode.isEmpty && !appState.isShowingLoadingView))
+                .disabled(duelCode.isEmpty || appState.isShowingLoadingView)
+
+                Button("Cancel") {
+                    showJoinDuelSheet = false
+                    duelCode = ""
+                }
+                .foregroundColor(.red)
                 .padding()
-                .background(Color.white)
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.gray.opacity(0.5), lineWidth: 1)
-                )
-                .autocapitalization(.allCharacters)
-                .colorScheme(.light)
-
-            Button("Join") {
-                appState.startLoading()
-                showJoinDuelSheet = false
-                joinDuel(code: duelCode)
             }
-            .foregroundColor(.black)
-            .modifier(RainbowButton(isEnabled: !duelCode.isEmpty && !appState.isShowingLoadingView))
-            .disabled(duelCode.isEmpty || appState.isShowingLoadingView)
-
-            Button("Cancel") {
-                showJoinDuelSheet = false
-                duelCode = ""
-            }
-            .foregroundColor(.red)
             .padding()
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white)
-        .edgesIgnoringSafeArea(.all)
-    }
-    
-    // MARK: - Polling Methods
-    
-    private func startPolling() {
-        // Cancel any existing timer
-        stopPolling()
-        
-        // Create a new timer that polls every 5 seconds
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-            if !appState.isShowingLoadingView && !appState.isNavigating {
-                // Only refresh if we're not already loading or navigating
-                loadDuelsQuietly()
-            }
+            .background(Color.white)
         }
     }
-    
-    private func stopPolling() {
-        pollingTimer?.invalidate()
-        pollingTimer = nil
-    }
-    
-    // A version of loadDuels that doesn't show loading indicators
-    private func loadDuelsQuietly() {
-        if let userId = dbManager.currentUserId {
-            dbManager.getUserDuels(userId: userId) { fetchedDuels, error in
-                if let error = error {
-                    print("Error refreshing duels: \(error.localizedDescription)")
-                    return
-                }
-                
-                guard let fetchedDuels = fetchedDuels else {
-                    return
-                }
-                
-                // Create view models for each duel
-                var viewModels: [DuelViewModel] = fetchedDuels.map { DuelViewModel(id: $0.id, duel: $0) }
-                
-                // Use a dispatch group to wait for all the participant data to load
-                let group = DispatchGroup()
-                
-                // Load participants for each duel
-                for (index, duel) in fetchedDuels.enumerated() {
-                    group.enter()
-                    dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
-                        defer {
-                            group.leave()
-                        }
-                        
-                        guard let participants = participants, error == nil else { return }
-                        
-                        // Find the current user and opponent
-                        if let currentUsername = dbManager.currentUsername {
-                            let currentUserParticipant = participants.first(where: { $0.username == currentUsername })
-                            let opponentParticipant = participants.first(where: { $0.username != currentUsername })
-                            
-                            DispatchQueue.main.async {
-                                if let opponent = opponentParticipant {
-                                    viewModels[index].opponentName = opponent.username
-                                    viewModels[index].opponentScore = opponent.score
-                                }
-                                
-                                if let currentUser = currentUserParticipant {
-                                    viewModels[index].userScore = currentUser.score
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // When all participants are loaded, update the UI
-                group.notify(queue: .main) {
-                    self.duelViewModels = viewModels
-                }
-            }
-        }
-    }
-
-    // MARK: - Standard Data Loading Methods
 
     private func loadDuels() {
         if let userId = dbManager.currentUserId {
@@ -402,9 +309,11 @@ struct ContentView: View {
                 // Load participants for each duel
                 for (index, duel) in fetchedDuels.enumerated() {
                     group.enter()
+                    print("group enter")
                     dbManager.getDuelParticipants(duelId: duel.id) { participants, error in
                         defer {
                             group.leave()
+                            print("group leave")
                         }
                         
                         guard let participants = participants, error == nil else { return }
@@ -505,5 +414,24 @@ struct ContentView: View {
                 }
             }
         }
+    }
+    
+    private func performLogout() {
+        // Small delay to show the loading indicator
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            dbManager.logout()
+            // Reset loading state after logout
+            DispatchQueue.main.async {
+                appState.stopLoading()
+            }
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+            .environmentObject(PostgresDBManager())
+            .environmentObject(AppState())
     }
 }
